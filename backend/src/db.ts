@@ -42,10 +42,14 @@ export function getDb(): Database.Database {
       contact_name TEXT NOT NULL REFERENCES contacts(name) ON DELETE CASCADE,
       body TEXT NOT NULL,
       source TEXT NOT NULL CHECK (source IN ('auto', 'manual')),
+      proposed_by TEXT NOT NULL DEFAULT 'llm' CHECK (proposed_by IN ('llm', 'user', 'system')),
+      confirmed_by_user INTEGER NOT NULL DEFAULT 1 CHECK (confirmed_by_user IN (0, 1)),
+      confirmed_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_notes_contact ON notes(contact_name);
+    CREATE INDEX IF NOT EXISTS idx_notes_confirmed ON notes(confirmed_by_user);
 
     CREATE TABLE IF NOT EXISTS strategy_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +73,12 @@ export function getDb(): Database.Database {
   ensureColumn(db, "contacts", "education_json", "TEXT");
   ensureColumn(db, "contacts", "skills_json", "TEXT");
   ensureColumn(db, "contacts", "profile_fetched_at", "TEXT");
+
+  // Provenance columns. ALTER TABLE with NOT NULL + DEFAULT applies the
+  // default to existing rows in SQLite, so this is safe to add late.
+  ensureColumn(db, "notes", "proposed_by", "TEXT NOT NULL DEFAULT 'llm'");
+  ensureColumn(db, "notes", "confirmed_by_user", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "notes", "confirmed_at", "TEXT");
 
   return db;
 }

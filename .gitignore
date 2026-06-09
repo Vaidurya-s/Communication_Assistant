@@ -13,3 +13,5 @@ backend/data/
 # Personal data — voice profile content stays local
 voice_profile/*
 !voice_profile/README.md
+!voice_profile/templates/
+!voice_profile/templates/**

@@ -1,11 +1,35 @@
 import { getDb } from "./db.js";
 import type { IncomingContactProfile } from "./prompt.js";
 
+/**
+ * Provenance model for notes.
+ *
+ *   proposed_by       — who suggested the note
+ *     'llm'    : LLM emitted a MEMORY: line (insight pipeline)
+ *     'user'   : user typed it directly in the overlay
+ *     'system' : reserved for future automated extractors
+ *
+ *   confirmed_by_user — has the user explicitly affirmed this note?
+ *     1 (true)  : the note is trusted; safe to inject back into prompts
+ *     0 (false) : the note exists but the user has not signed off on it
+ *
+ * Today every code path that writes a note sets confirmed_by_user=1
+ * (the overlay "Save" click is the trust gate). The column is here so that
+ * a future automated extractor — which would propose notes without explicit
+ * user approval — can be added without re-plumbing the schema, and so the
+ * prompt-injection read path can filter to user-confirmed only with a
+ * single WHERE clause.
+ */
+export type ProposedBy = "llm" | "user" | "system";
+
 export interface Note {
   id: number;
   contact_name: string;
   body: string;
   source: "auto" | "manual";
+  proposed_by: ProposedBy;
+  confirmed_by_user: 0 | 1;
+  confirmed_at: string | null;
   created_at: string;
 }
 
@@ -111,22 +135,79 @@ export function getContact(name: string): Contact | null {
   return row ? rowToContact(row) : null;
 }
 
-export function getNotesFor(name: string, limit = MAX_NOTES_INJECTED): Note[] {
+interface GetNotesOptions {
+  limit?: number;
+  /** Default false — only user-confirmed notes are returned. */
+  includeUnconfirmed?: boolean;
+}
+
+export function getNotesFor(name: string, opts: GetNotesOptions | number = {}): Note[] {
   if (!name) return [];
+  const options: GetNotesOptions = typeof opts === "number" ? { limit: opts } : opts;
+  const limit = options.limit ?? MAX_NOTES_INJECTED;
+  const where = options.includeUnconfirmed
+    ? `contact_name = ?`
+    : `contact_name = ? AND confirmed_by_user = 1`;
   return getDb()
-    .prepare(`SELECT * FROM notes WHERE contact_name = ? ORDER BY created_at DESC LIMIT ?`)
+    .prepare(`SELECT * FROM notes WHERE ${where} ORDER BY created_at DESC LIMIT ?`)
     .all(name, limit) as Note[];
 }
 
+/**
+ * Write a user-confirmed note. Two flavours:
+ *   source='auto'   → originally proposed by the LLM, user clicked Save
+ *   source='manual' → user typed and submitted it themselves
+ * In both cases confirmed_by_user=1 because the user took a deliberate
+ * action. To write an unconfirmed/pending note (future automated path),
+ * use proposeNote() instead.
+ */
 export function addNote(contactName: string, body: string, source: "auto" | "manual"): number {
   if (!contactName || !body.trim()) {
     throw new Error("contactName and non-empty body required");
   }
   upsertContact(contactName, null);
+  const proposedBy: ProposedBy = source === "auto" ? "llm" : "user";
   const info = getDb()
-    .prepare(`INSERT INTO notes (contact_name, body, source) VALUES (?, ?, ?)`)
-    .run(contactName, body.trim(), source);
+    .prepare(
+      `INSERT INTO notes (contact_name, body, source, proposed_by, confirmed_by_user, confirmed_at)
+       VALUES (?, ?, ?, ?, 1, datetime('now'))`,
+    )
+    .run(contactName, body.trim(), source, proposedBy);
   return Number(info.lastInsertRowid);
+}
+
+/**
+ * Write an unconfirmed note — proposed by an automated path (e.g. a future
+ * background extractor) and waiting for the user to confirm via the overlay.
+ * Returns the new row id; the row will NOT be injected into prompts until
+ * confirmNote() is called.
+ */
+export function proposeNote(
+  contactName: string,
+  body: string,
+  proposedBy: Exclude<ProposedBy, "user"> = "llm",
+): number {
+  if (!contactName || !body.trim()) {
+    throw new Error("contactName and non-empty body required");
+  }
+  upsertContact(contactName, null);
+  const info = getDb()
+    .prepare(
+      `INSERT INTO notes (contact_name, body, source, proposed_by, confirmed_by_user, confirmed_at)
+       VALUES (?, ?, 'auto', ?, 0, NULL)`,
+    )
+    .run(contactName, body.trim(), proposedBy);
+  return Number(info.lastInsertRowid);
+}
+
+/** Promote a previously-proposed note to user-confirmed. */
+export function confirmNote(id: number): void {
+  getDb()
+    .prepare(
+      `UPDATE notes SET confirmed_by_user = 1, confirmed_at = datetime('now')
+       WHERE id = ? AND confirmed_by_user = 0`,
+    )
+    .run(id);
 }
 
 export function setFollowupAt(contactName: string, iso: string | null): void {

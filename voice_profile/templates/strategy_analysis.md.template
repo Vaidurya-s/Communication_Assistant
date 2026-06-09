@@ -1,0 +1,60 @@
+# Strategy analysis — voice profile (template)
+
+This file is the **canonical compiled voice profile** the backend injects into
+every LLM prompt. Treat it as the distilled output of all your other working
+files (boundaries.md, tone.md, writing_patterns.md, etc.). Keep it
+single-source: the LLM sees this, not the fragments.
+
+Copy this file to `voice_profile/strategy_analysis.md` and replace the
+placeholder text below with your own distillation. The backend will refuse
+to start until the runtime file exists.
+
+---
+
+## How I open messages
+
+<!-- e.g. "I almost always open with a one-line acknowledgement of their last point,
+then pivot. No greetings like 'Hope you're well'." -->
+
+## Sentence length and rhythm
+
+<!-- e.g. "Short declaratives. Most messages are 2–4 sentences total. I rarely
+go past three lines unless I'm being deliberate about it." -->
+
+## How I disagree
+
+<!-- e.g. "I name the disagreement directly but soften the framing — 'I see it
+differently' rather than 'you're wrong'. I never hedge to the point of mushiness." -->
+
+## How I ask questions
+
+<!-- e.g. "Specific over open-ended. I ask 'what's the team size?' not 'tell me
+about the team'." -->
+
+## Vocabulary I avoid
+
+<!-- e.g. "No 'circle back', no 'touch base', no 'leverage', no 'synergy'.
+No exclamation marks beyond a single one per message." -->
+
+## How I close
+
+<!-- e.g. "Usually I just stop. If I want a reply I end with a question, not a
+'looking forward to hearing from you'." -->
+
+## Register shifts
+
+<!-- e.g. "Recruiters / senior people: dial down humour, dial up directness.
+Peers / friends: occasional dry one-liners are fine." -->
+
+## What I sound like when I'm declining something
+
+<!-- e.g. "Direct, brief, no apology theatre. 'Not this round, thanks — best
+of luck.'" -->
+
+## Examples of phrasings I actually use
+
+<!-- e.g.
+- "Quick one —"
+- "Genuinely curious about X."
+- "Not sure yet — leaning toward Y."
+-->

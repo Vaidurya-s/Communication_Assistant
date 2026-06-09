@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
 import { runLLM, getProviderName } from "./llm/index.js";
-import { loadVoiceProfile } from "./voiceProfile.js";
+import { loadVoiceProfile, validateVoiceProfile, VoiceProfileMissingError } from "./voiceProfile.js";
 import { buildPrompt, type Mode } from "./prompt.js";
 import {
   addNote,
@@ -203,6 +203,20 @@ app.get("/memory/contact/:name", (req: Request, res: Response) => {
 });
 
 const PORT = 8000;
+
+// Hard startup validation. If the runtime voice profile is missing or
+// empty, we refuse to boot — silent degradation to "no voice profile
+// found" was producing bad replies without anyone noticing.
+try {
+  validateVoiceProfile();
+} catch (err) {
+  if (err instanceof VoiceProfileMissingError) {
+    console.error("\n" + err.message + "\n");
+    process.exit(1);
+  }
+  throw err;
+}
+
 app.listen(PORT, () => {
   ensureWorkspace();
   const voiceChars = getVoice().length;
