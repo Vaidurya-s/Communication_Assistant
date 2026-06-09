@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { AnalyzeRequest, BackendResponse, Mode, RuntimeMessage } from "../shared/messages";
 import { useDraggable, type Position } from "./useDraggable";
+import {
+  formatDiagnosticsSummary,
+  type ExtractionDiagnostics,
+} from "../content/diagnostics";
+import { getDebugMode, setDebugMode } from "../shared/debug";
+import {
+  captureSnapshot,
+  clearArmedSnapshot,
+  getArmedSnapshot,
+  type Snapshot,
+} from "../content/snapshot";
 
 const POSITION_KEY = "overlayPosition";
 const COLLAPSED_KEY = "overlayCollapsed";
@@ -87,6 +98,12 @@ export function Overlay({ onClose }: Props) {
   const [noteDraft, setNoteDraft] = useState<string>("");
   const [showNoteInput, setShowNoteInput] = useState(false);
 
+  const [diagnostics, setDiagnostics] = useState<ExtractionDiagnostics | null>(null);
+  const [debugMode, setDebugModeState] = useState<boolean>(false);
+  const [showDiagPane, setShowDiagPane] = useState<boolean>(false);
+  const [snapshotExported, setSnapshotExported] = useState(false);
+  const [anomalyDismissed, setAnomalyDismissed] = useState(false);
+
   const previewRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -98,6 +115,8 @@ export function Overlay({ onClose }: Props) {
       if (typeof all[COLLAPSED_KEY] === "boolean") setCollapsed(all[COLLAPSED_KEY]);
     });
 
+    getDebugMode().then(setDebugModeState);
+
     sendBackground({ type: "STATUS_REQUEST" }).then(async (resp) => {
       if (resp?.type === "STATUS_RESPONSE" && resp.lastContext) {
         const info = {
@@ -106,6 +125,7 @@ export function Overlay({ onClose }: Props) {
           draftLen: resp.lastContext.current_draft.length,
         };
         setThreadInfo(info);
+        if (resp.lastDiagnostics) setDiagnostics(resp.lastDiagnostics);
         if (resp.lastResponse?.suggested_reply) setPreview(resp.lastResponse.suggested_reply);
         if (resp.lastResponse?.memory_proposal) setMemoryProposal(resp.lastResponse.memory_proposal);
         if (resp.lastResponse?.strategy) setStrategy(resp.lastResponse.strategy);
@@ -114,6 +134,13 @@ export function Overlay({ onClose }: Props) {
       }
     });
   }, []);
+
+  const toggleDebugMode = async () => {
+    const next = !debugMode;
+    setDebugModeState(next);
+    await setDebugMode(next);
+    if (!next) setShowDiagPane(false);
+  };
 
   const persistPosition = (p: Position) => {
     chrome.storage.local.set({ [POSITION_KEY]: p });
@@ -153,6 +180,10 @@ export function Overlay({ onClose }: Props) {
           draftLen: status.lastContext.current_draft.length,
         };
         setThreadInfo(info);
+        if (status.lastDiagnostics) {
+          setDiagnostics(status.lastDiagnostics);
+          setAnomalyDismissed(false);
+        }
         const c = await fetchContact(info.title);
         setContactInfo(c);
       }
@@ -208,6 +239,23 @@ export function Overlay({ onClose }: Props) {
 
   const loadingMode = status.kind === "loading" ? status.mode : null;
   const followupChip = renderFollowupChip(contactInfo);
+  // Re-read on each render — refreshed by state updates after each analyze.
+  const armedSnap = getArmedSnapshot();
+
+  const exportSnapshot = async (snap: Snapshot) => {
+    await navigator.clipboard.writeText(JSON.stringify(snap, null, 2));
+    setSnapshotExported(true);
+    setTimeout(() => setSnapshotExported(false), 1500);
+  };
+
+  const onDismissAnomaly = () => {
+    clearArmedSnapshot();
+    setAnomalyDismissed(true);
+  };
+
+  const onManualCapture = () => {
+    void exportSnapshot(captureSnapshot());
+  };
 
   return (
     <div style={{ ...rootStyle, left: livePosition.x, top: livePosition.y }}>
@@ -224,6 +272,25 @@ export function Overlay({ onClose }: Props) {
 
       {!collapsed && (
         <div style={bodyStyle}>
+          {armedSnap && !anomalyDismissed && (
+            <div style={anomalyCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                ⚠ Extraction anomaly detected
+              </div>
+              <div style={{ fontSize: 11, marginBottom: 6, color: "#7a3e00" }}>
+                {(armedSnap.diagnostics?.anomalies ?? []).join(", ") || "see snapshot"}
+              </div>
+              <div style={btnRowStyle}>
+                <button onClick={() => void exportSnapshot(armedSnap)} style={primaryBtnStyle}>
+                  {snapshotExported ? "Copied ✓" : "Export JSON"}
+                </button>
+                <button onClick={onDismissAnomaly} style={ghostBtnStyle}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
           <div style={statusLineStyle}>
             {threadInfo ? (
               <>
@@ -322,6 +389,43 @@ export function Overlay({ onClose }: Props) {
 
           {status.kind === "error" && (
             <div style={errorStyle}>{status.message}</div>
+          )}
+
+          {/* Footer: one-line diagnostics summary + debug toggle */}
+          <div style={footerStyle}>
+            <span style={footerSummaryStyle}>
+              {diagnostics ? formatDiagnosticsSummary(diagnostics) : "no extraction yet"}
+            </span>
+            <span style={spacerStyle} />
+            <button
+              onClick={toggleDebugMode}
+              style={footerToggleStyle}
+              title={debugMode ? "Debug mode on" : "Debug mode off"}
+            >
+              {debugMode ? "debug ●" : "debug ○"}
+            </button>
+            {debugMode && (
+              <button
+                onClick={() => setShowDiagPane((v) => !v)}
+                style={footerToggleStyle}
+                title="Toggle diagnostics detail"
+              >
+                {showDiagPane ? "▾" : "▸"}
+              </button>
+            )}
+          </div>
+
+          {debugMode && showDiagPane && (
+            <>
+              <pre style={diagPaneStyle}>
+                {diagnostics
+                  ? JSON.stringify(diagnostics, null, 2)
+                  : "(no extraction recorded yet)"}
+              </pre>
+              <button onClick={onManualCapture} style={ghostBtnStyle}>
+                {snapshotExported ? "Snapshot copied ✓" : "Capture snapshot"}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -492,4 +596,54 @@ const errorStyle: React.CSSProperties = {
   fontSize: 11,
   whiteSpace: "pre-wrap",
   wordBreak: "break-word",
+};
+
+const footerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  marginTop: 2,
+  paddingTop: 6,
+  borderTop: "1px solid #eef0f2",
+  fontSize: 10,
+  color: "#666",
+};
+
+const footerSummaryStyle: React.CSSProperties = {
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontSize: 10,
+  color: "#666",
+};
+
+const footerToggleStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid #d0d7de",
+  borderRadius: 3,
+  fontSize: 10,
+  padding: "2px 6px",
+  cursor: "pointer",
+  color: "#666",
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+};
+
+const diagPaneStyle: React.CSSProperties = {
+  background: "#0d1117",
+  color: "#e6edf3",
+  padding: 8,
+  borderRadius: 4,
+  fontSize: 10,
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  maxHeight: 240,
+  overflow: "auto",
+  whiteSpace: "pre",
+  margin: 0,
+};
+
+const anomalyCardStyle: React.CSSProperties = {
+  background: "#fff4e5",
+  border: "1px solid #ffb74d",
+  padding: 8,
+  borderRadius: 4,
+  fontSize: 12,
+  color: "#7a3e00",
 };

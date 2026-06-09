@@ -1,4 +1,5 @@
 import type { RuntimeMessage } from "../shared/messages";
+import type { ExtractionResult } from "../shared/types";
 import { isLinkedInMessagingRoute } from "./detector";
 import {
   backfillMessages,
@@ -6,14 +7,42 @@ import {
   installMessageObserver,
 } from "./linkedin";
 import { mountOverlay, unmountOverlay } from "../overlay/mount";
+import { armAnomalySnapshot } from "./snapshot";
 
 let observer: MutationObserver | null = null;
 let installRetryHandle: number | null = null;
 
+// Last extraction is held in module scope so the snapshot mechanism (Phase 1b)
+// can grab the most recent diagnostics + parsed result without re-running.
+let lastExtraction: ExtractionResult | null = null;
+
+export function getLastExtraction(): ExtractionResult | null {
+  return lastExtraction;
+}
+
+async function extractAndRemember(backfill: boolean): Promise<ExtractionResult> {
+  let backfillMs = -1;
+  if (backfill) backfillMs = await backfillMessages();
+  const result = await extractLinkedInContext();
+  if (backfillMs >= 0) result.diagnostics.backfillMs = backfillMs;
+  lastExtraction = result;
+  // Auto-arm a forensic snapshot whenever an anomaly is detected. Overwrites
+  // any previously-armed one so the freshest broken state wins.
+  if (result.diagnostics.anomalies.length > 0) armAnomalySnapshot();
+  return result;
+}
+
 async function sendExtracted(trigger: "user" | "observer"): Promise<void> {
   try {
-    const ctx = await extractLinkedInContext();
-    const msg: RuntimeMessage = { type: "CONTEXT_EXTRACTED", payload: ctx, trigger };
+    // Observer-driven extractions never backfill (cheap path).
+    const result = await extractAndRemember(false);
+    const msg: RuntimeMessage = {
+      type: "CONTEXT_EXTRACTED",
+      payload: result.context,
+      diagnostics: result.diagnostics,
+      trigger,
+      anomalySnapshotArmed: result.diagnostics.anomalies.length > 0,
+    };
     chrome.runtime.sendMessage(msg).catch(() => {});
   } catch (err) {
     const errMsg: RuntimeMessage = {
@@ -30,7 +59,6 @@ function tryInstallObserver(): void {
     void sendExtracted("observer");
   });
   if (!observer) {
-    // LinkedIn lazy-mounts the messaging pane; retry until it appears.
     if (installRetryHandle !== null) window.clearTimeout(installRetryHandle);
     installRetryHandle = window.setTimeout(tryInstallObserver, 1000);
   }
@@ -66,9 +94,15 @@ chrome.runtime.onMessage.addListener(
 
     (async () => {
       try {
-        if ((msg as RuntimeMessage & { backfill: boolean }).backfill) await backfillMessages();
-        const ctx = await extractLinkedInContext();
-        sendResponse({ type: "CONTEXT_EXTRACTED", payload: ctx, trigger: "user" });
+        const backfill = !!(msg as RuntimeMessage & { backfill: boolean }).backfill;
+        const result = await extractAndRemember(backfill);
+        sendResponse({
+          type: "CONTEXT_EXTRACTED",
+          payload: result.context,
+          diagnostics: result.diagnostics,
+          trigger: "user",
+          anomalySnapshotArmed: result.diagnostics.anomalies.length > 0,
+        });
       } catch (err) {
         sendResponse({ type: "ERROR", message: (err as Error).message });
       }

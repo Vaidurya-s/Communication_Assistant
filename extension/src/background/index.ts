@@ -5,14 +5,17 @@ import {
   type RuntimeMessage,
 } from "../shared/messages";
 import type { ConversationContext } from "../shared/types";
+import type { ExtractionDiagnostics } from "../content/diagnostics";
 
 interface SessionState {
   lastContext: ConversationContext | null;
+  lastDiagnostics: ExtractionDiagnostics | null;
   lastResponse: BackendResponse | null;
 }
 
 const state: SessionState = {
   lastContext: null,
+  lastDiagnostics: null,
   lastResponse: null,
 };
 
@@ -73,7 +76,12 @@ async function ensureContentScriptInjected(tab: chrome.tabs.Tab): Promise<void> 
   }
 }
 
-async function requestExtractFromContent(tabId: number): Promise<ConversationContext> {
+interface ExtractedFromContent {
+  context: ConversationContext;
+  diagnostics: ExtractionDiagnostics;
+}
+
+async function requestExtractFromContent(tabId: number): Promise<ExtractedFromContent> {
   const req: RuntimeMessage = { type: "EXTRACT_REQUEST", backfill: true };
   let resp: RuntimeMessage | undefined;
   try {
@@ -88,7 +96,7 @@ async function requestExtractFromContent(tabId: number): Promise<ConversationCon
     const msg = resp && "message" in resp ? (resp as { message: string }).message : undefined;
     throw new Error(msg ?? "content script returned no context");
   }
-  return resp.payload as ConversationContext;
+  return { context: resp.payload, diagnostics: resp.diagnostics };
 }
 
 async function postToBackend(
@@ -129,17 +137,19 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
     let ctx: ConversationContext;
     if (needsContextExtraction(req.mode)) {
       await ensureContentScriptInjected(tab);
-      ctx = await requestExtractFromContent(tab.id);
+      const extracted = await requestExtractFromContent(tab.id);
+      ctx = extracted.context;
       state.lastContext = ctx;
+      state.lastDiagnostics = extracted.diagnostics;
+    } else if (state.lastContext) {
+      // Reuse the last extracted context if we have it.
+      ctx = state.lastContext;
     } else {
-      // Reuse the last extracted context if we have it; otherwise extract.
-      if (state.lastContext) {
-        ctx = state.lastContext;
-      } else {
-        await ensureContentScriptInjected(tab);
-        ctx = await requestExtractFromContent(tab.id);
-        state.lastContext = ctx;
-      }
+      await ensureContentScriptInjected(tab);
+      const extracted = await requestExtractFromContent(tab.id);
+      ctx = extracted.context;
+      state.lastContext = ctx;
+      state.lastDiagnostics = extracted.diagnostics;
     }
     const resp = await postToBackend(ctx, req.mode, req.seed_text);
     state.lastResponse = resp;
@@ -159,6 +169,7 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, _sender, sendResponse
     const resp: RuntimeMessage = {
       type: "STATUS_RESPONSE",
       lastContext: state.lastContext,
+      lastDiagnostics: state.lastDiagnostics,
       lastResponse: state.lastResponse,
     };
     sendResponse(resp);
@@ -166,10 +177,11 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, _sender, sendResponse
   }
 
   if (msg.type === "CONTEXT_EXTRACTED") {
-    // Observer-driven update: cache it locally so the popup can show a fresh
+    // Observer-driven update: cache it locally so the overlay can show a fresh
     // preview without re-triggering extraction. Do NOT hit the backend here.
     if (msg.trigger === "observer") {
       state.lastContext = msg.payload;
+      state.lastDiagnostics = msg.diagnostics;
     }
     return false;
   }

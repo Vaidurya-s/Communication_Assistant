@@ -1,4 +1,5 @@
 import type { ConversationContext } from "./types";
+import type { ExtractionDiagnostics } from "../content/diagnostics";
 
 export type Mode = "suggest" | "continue_draft" | "shorter" | "longer" | "follow_up";
 
@@ -19,10 +20,21 @@ export interface BackendResponse {
 export type RuntimeMessage =
   | AnalyzeRequest
   | { type: "EXTRACT_REQUEST"; backfill: boolean }
-  | { type: "CONTEXT_EXTRACTED"; payload: ConversationContext; trigger: "user" | "observer" }
+  | {
+      type: "CONTEXT_EXTRACTED";
+      payload: ConversationContext;
+      diagnostics: ExtractionDiagnostics;
+      trigger: "user" | "observer";
+      anomalySnapshotArmed?: boolean;
+    }
   | { type: "BACKEND_RESPONSE"; payload: BackendResponse }
   | { type: "STATUS_REQUEST" }
-  | { type: "STATUS_RESPONSE"; lastContext: ConversationContext | null; lastResponse: BackendResponse | null }
+  | {
+      type: "STATUS_RESPONSE";
+      lastContext: ConversationContext | null;
+      lastDiagnostics: ExtractionDiagnostics | null;
+      lastResponse: BackendResponse | null;
+    }
   | { type: "ERROR"; message: string };
 
 export const BACKEND_URL = "http://localhost:8000/analyze";

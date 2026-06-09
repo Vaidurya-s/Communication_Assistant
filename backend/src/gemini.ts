@@ -1,15 +1,9 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { getWorkspacePath } from "./workspace.js";
 
 // On Windows the npm-installed gemini CLI is a .ps1/.cmd shim; on POSIX it's a
 // shebang script. `shell: true` lets Node resolve whichever exists on PATH.
 const GEMINI_BIN = "gemini";
-
-// Workspace for gemini: the voice_profile directory, so its built-in Read/Grep
-// tools can search the raw chat corpus (linkedin_successful_messages.md) on
-// demand. We use --approval-mode plan to allow read-only tool calls without
-// prompting (gemini cannot write/edit/run shell commands in this mode).
-const GEMINI_CWD = resolve(process.cwd(), "..", "voice_profile");
 
 const TIMEOUT_MS = 180_000;
 
@@ -36,7 +30,9 @@ export function runGemini(instruction: string, context: string): Promise<GeminiR
       {
         shell: true,
         windowsHide: true,
-        cwd: GEMINI_CWD,
+        // cwd is the isolated sandbox built at server startup. gemini's
+        // Read/Grep tools cannot see anything outside this directory.
+        cwd: getWorkspacePath(),
       },
     );
 

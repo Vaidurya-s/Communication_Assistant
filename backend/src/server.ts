@@ -12,6 +12,7 @@ import {
   upsertContact,
 } from "./memory.js";
 import { generateInsight } from "./insight.js";
+import { ensureWorkspace } from "./workspace.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -184,6 +185,7 @@ app.get("/memory/contact/:name", (req: Request, res: Response) => {
 
 const PORT = 8000;
 app.listen(PORT, () => {
+  ensureWorkspace();
   const voiceChars = getVoice().length;
   console.log(`backend on :${PORT} — voice profile loaded (${voiceChars} chars)`);
 });

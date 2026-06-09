@@ -1,3 +1,5 @@
+import type { ExtractionDiagnostics } from "../content/diagnostics";
+
 export type Platform = "linkedin" | "whatsapp" | "gmail" | "unknown";
 
 export interface Participant {
@@ -25,4 +27,10 @@ export interface ConversationContext {
   messages: Message[];
   current_draft: string;
   page_metadata: PageMetadata;
+}
+
+/** What `extractLinkedInContext` returns — context + the diagnostics of how it was produced. */
+export interface ExtractionResult {
+  context: ConversationContext;
+  diagnostics: ExtractionDiagnostics;
 }
