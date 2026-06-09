@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
-import { runGemini } from "./gemini.js";
+import { runLLM, getProviderName } from "./llm/index.js";
 import { loadVoiceProfile } from "./voiceProfile.js";
 import { buildPrompt, type Mode } from "./prompt.js";
 import {
@@ -34,7 +34,11 @@ function getVoice(): string {
 }
 
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ ok: true, voiceProfileChars: getVoice().length });
+  res.json({
+    ok: true,
+    voiceProfileChars: getVoice().length,
+    provider: getProviderName(),
+  });
 });
 
 app.post("/analyze", async (req: Request, res: Response) => {
@@ -83,7 +87,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
 
   // Fire reply + insight in parallel. Insight is run on the FULL transcript
   // regardless of mode (it always benefits from full context).
-  const replyPromise = runGemini(instruction, context);
+  const replyPromise = runLLM(instruction, context);
 
   // Only run insight when we have a real conversation to analyze. shorter/formal
   // are pure rewrites — they shouldn't trigger memory updates.
@@ -103,7 +107,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
   const [replyResult, insightResult] = await Promise.allSettled([replyPromise, insightPromise]);
 
   if (replyResult.status === "rejected") {
-    console.error("[analyze] reply gemini failed:", replyResult.reason);
+    console.error("[analyze] reply llm failed:", replyResult.reason);
     res.status(500).json({ error: (replyResult.reason as Error)?.message ?? "reply failed" });
     return;
   }
@@ -115,7 +119,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
       : { memory_proposal: null, strategy: null };
 
   if (insightResult.status === "rejected") {
-    console.warn("[analyze] insight gemini failed (reply still returned):", (insightResult.reason as Error)?.message);
+    console.warn("[analyze] insight llm failed (reply still returned):", (insightResult.reason as Error)?.message);
   }
 
   if (insight.strategy && contactName) {
@@ -135,7 +139,8 @@ app.post("/analyze", async (req: Request, res: Response) => {
       seed_len: seedText.length,
       requested_mode: mode,
       resolved_mode: resolvedMode,
-      gemini_ms: reply.durationMs,
+      llm_ms: reply.durationMs,
+      provider: getProviderName(),
       had_existing_notes: existingNoteBodies.length,
       insight_status: insightResult.status,
     },
@@ -187,5 +192,5 @@ const PORT = 8000;
 app.listen(PORT, () => {
   ensureWorkspace();
   const voiceChars = getVoice().length;
-  console.log(`backend on :${PORT} — voice profile loaded (${voiceChars} chars)`);
+  console.log(`backend on :${PORT} — voice profile loaded (${voiceChars} chars) — provider=${getProviderName()}`);
 });

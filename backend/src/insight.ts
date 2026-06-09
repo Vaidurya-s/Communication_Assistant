@@ -1,4 +1,4 @@
-import { runGemini } from "./gemini.js";
+import { runLLM } from "./llm/index.js";
 import type { Note } from "./memory.js";
 
 export interface InsightResult {
@@ -54,10 +54,10 @@ export async function generateInsight(input: InsightInput): Promise<InsightResul
   ].join("\n");
 
   try {
-    const result = await runGemini(INSTRUCTION, context);
+    const result = await runLLM(INSTRUCTION, context);
     return parseInsight(result.text, input.contactName);
   } catch (err) {
-    console.warn("[insight] gemini failed (returning empty):", (err as Error).message);
+    console.warn("[insight] llm failed (returning empty):", (err as Error).message);
     return { memory_proposal: null, strategy: null };
   }
 }

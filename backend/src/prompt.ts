@@ -7,12 +7,27 @@ interface IncomingMessage {
   text: string;
 }
 
+export interface IncomingContactProfile {
+  name?: string;
+  headline?: string;
+  role?: string;
+  company?: string;
+  location?: string;
+  about?: string;
+  experience?: Array<{ title?: string; company?: string; duration?: string }>;
+  education?: Array<{ school?: string; degree?: string }>;
+  skills?: string[];
+  profileUrl?: string;
+  fetchedAt?: string;
+}
+
 interface IncomingContext {
   platform?: string;
   conversation_title?: string;
   participants?: Array<{ name: string; role?: string }>;
   messages?: IncomingMessage[];
   current_draft?: string;
+  contact_profile?: IncomingContactProfile | null;
 }
 
 export interface BuildPromptInput {
@@ -79,12 +94,17 @@ function resolveMode(mode: Mode, seedText: string, draft: string): Mode {
  *   - current_draft (the user's own typing — trusted in principle, but it's
  *     in the same boundary because it can be auto-completed from prior turns
  *     and we want a single trust boundary)
+ *   - contact_profile (the other participant's LinkedIn profile content —
+ *     headline, role, company, about text, experience, education, skills.
+ *     Attacker-controlled: anyone can put "ignore previous instructions" in
+ *     their About section. Inside the boundary.)
  */
 function untrustedConversationBlock(args: {
   platform: string;
   thread_title: string;
   messages: Array<{ sender: string; isSelf: boolean; timestamp?: string; text: string }>;
   current_draft: string;
+  contact_profile: IncomingContactProfile | null;
 }): string {
   const payload = {
     platform: args.platform,
@@ -96,6 +116,7 @@ function untrustedConversationBlock(args: {
       text: m.text,
     })),
     current_draft: args.current_draft,
+    contact_profile: args.contact_profile ?? null,
   };
 
   return [
@@ -145,6 +166,7 @@ export function buildPrompt(input: BuildPromptInput): { instruction: string; con
     thread_title: title,
     messages,
     current_draft: draft,
+    contact_profile: ctx.contact_profile ?? null,
   });
 
   const context = [

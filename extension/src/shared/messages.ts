@@ -1,5 +1,6 @@
 import type { ConversationContext } from "./types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
+import type { ContactProfile } from "./profile";
 
 export type Mode = "suggest" | "continue_draft" | "shorter" | "longer" | "follow_up";
 
@@ -35,6 +36,10 @@ export type RuntimeMessage =
       lastDiagnostics: ExtractionDiagnostics | null;
       lastResponse: BackendResponse | null;
     }
+  /** Content script (on a thread) → background: kick off profile fetch for this URL. */
+  | { type: "PROFILE_FETCH_REQUEST"; profileUrl: string }
+  /** Content script (on a profile page) → background: extracted payload. */
+  | { type: "PROFILE_EXTRACTED"; payload: ContactProfile }
   | { type: "ERROR"; message: string };
 
 export const BACKEND_URL = "http://localhost:8000/analyze";

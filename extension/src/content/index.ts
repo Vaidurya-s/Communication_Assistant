@@ -8,12 +8,16 @@ import {
 } from "./linkedin";
 import { mountOverlay, unmountOverlay } from "../overlay/mount";
 import { armAnomalySnapshot } from "./snapshot";
+import {
+  extractLinkedInProfile,
+  getThreadContactProfileUrl,
+  isOnProfilePage,
+  waitForProfileReady,
+} from "./profile";
 
 let observer: MutationObserver | null = null;
 let installRetryHandle: number | null = null;
 
-// Last extraction is held in module scope so the snapshot mechanism (Phase 1b)
-// can grab the most recent diagnostics + parsed result without re-running.
 let lastExtraction: ExtractionResult | null = null;
 
 export function getLastExtraction(): ExtractionResult | null {
@@ -26,15 +30,12 @@ async function extractAndRemember(backfill: boolean): Promise<ExtractionResult> 
   const result = await extractLinkedInContext();
   if (backfillMs >= 0) result.diagnostics.backfillMs = backfillMs;
   lastExtraction = result;
-  // Auto-arm a forensic snapshot whenever an anomaly is detected. Overwrites
-  // any previously-armed one so the freshest broken state wins.
   if (result.diagnostics.anomalies.length > 0) armAnomalySnapshot();
   return result;
 }
 
 async function sendExtracted(trigger: "user" | "observer"): Promise<void> {
   try {
-    // Observer-driven extractions never backfill (cheap path).
     const result = await extractAndRemember(false);
     const msg: RuntimeMessage = {
       type: "CONTEXT_EXTRACTED",
@@ -64,6 +65,21 @@ function tryInstallObserver(): void {
   }
 }
 
+/**
+ * On thread open: discover the contact's profile URL and ask the background
+ * to fetch the profile (out-of-band, hidden tab). Background caches and
+ * dedupes. Safe to call repeatedly — background no-ops if cache is fresh.
+ */
+function maybeKickProfileFetch(): void {
+  // Defer one tick — the thread header sometimes hydrates a beat after route change.
+  window.setTimeout(() => {
+    const url = getThreadContactProfileUrl();
+    if (!url) return;
+    const msg: RuntimeMessage = { type: "PROFILE_FETCH_REQUEST", profileUrl: url };
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  }, 1500);
+}
+
 function bootForCurrentRoute(): void {
   if (observer) {
     observer.disconnect();
@@ -79,10 +95,9 @@ function bootForCurrentRoute(): void {
   }
   tryInstallObserver();
   mountOverlay();
+  maybeKickProfileFetch();
 }
 
-// Background pings this listener to confirm the content script is alive
-// before attempting an extract. Liveness checks must respond synchronously.
 chrome.runtime.onMessage.addListener(
   (msg: { type?: string } & Record<string, unknown>, _sender, sendResponse) => {
     if (msg?.type === "PING") {
@@ -94,7 +109,7 @@ chrome.runtime.onMessage.addListener(
 
     (async () => {
       try {
-        const backfill = !!(msg as RuntimeMessage & { backfill: boolean }).backfill;
+        const backfill = !!(msg as { backfill?: boolean }).backfill;
         const result = await extractAndRemember(backfill);
         sendResponse({
           type: "CONTEXT_EXTRACTED",
@@ -108,14 +123,36 @@ chrome.runtime.onMessage.addListener(
       }
     })();
 
-    return true; // async response
+    return true;
   },
 );
 
-bootForCurrentRoute();
+/**
+ * Profile-page bootstrap: if this content script instance was loaded onto a
+ * /in/<handle>/ page, extract the profile and send it back. This is the
+ * receiving end of background-initiated hidden-tab fetches.
+ */
+async function bootForProfilePage(): Promise<void> {
+  if (!isOnProfilePage()) return;
+  await waitForProfileReady(8000);
+  try {
+    const profile = extractLinkedInProfile();
+    if (!profile.name) return;
+    const msg: RuntimeMessage = { type: "PROFILE_EXTRACTED", payload: profile };
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch (err) {
+    chrome.runtime
+      .sendMessage({
+        type: "ERROR",
+        message: `profile extract failed: ${(err as Error).message}`,
+      } satisfies RuntimeMessage)
+      .catch(() => {});
+  }
+}
 
-// LinkedIn is a SPA. Hook history methods + popstate to detect URL changes
-// without observing the whole document.
+bootForCurrentRoute();
+void bootForProfilePage();
+
 const onUrlChange = () => bootForCurrentRoute();
 
 const origPushState = history.pushState;

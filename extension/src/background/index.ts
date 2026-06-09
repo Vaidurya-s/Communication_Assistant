@@ -6,6 +6,11 @@ import {
 } from "../shared/messages";
 import type { ConversationContext } from "../shared/types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
+import {
+  getProfileForUrl,
+  handleProfileExtracted,
+  requestProfileFetch,
+} from "./profileFetcher";
 
 interface SessionState {
   lastContext: ConversationContext | null;
@@ -48,9 +53,6 @@ async function ensureContentScriptInjected(tab: chrome.tabs.Tab): Promise<void> 
 
   if (await pingContentScript(tab.id)) return;
 
-  // Tab was likely open before the extension was loaded — content scripts
-  // don't retroactively inject. Inject programmatically now. Path comes from
-  // the runtime manifest so we don't hard-code crxjs's hashed filename.
   const files = getContentScriptFiles();
   if (files.length === 0) {
     throw new Error("no content_scripts declared in manifest");
@@ -123,10 +125,22 @@ async function postToBackend(
   return (await res.json()) as BackendResponse;
 }
 
-// `shorter`/`longer` can run without re-extracting the conversation — they only
-// need the seed_text. Skipping extraction saves the 5-10s scroll-backfill.
 function needsContextExtraction(mode: AnalyzeRequest["mode"]): boolean {
   return mode !== "shorter" && mode !== "longer";
+}
+
+/**
+ * Look up any cached profile for this contact and attach it to the context
+ * before posting to the backend. We don't block on a fetch — if there's
+ * nothing cached yet, the request goes out without enrichment and the next
+ * one will benefit (the fetch was kicked off when the thread first opened).
+ */
+async function attachContactProfile(ctx: ConversationContext): Promise<ConversationContext> {
+  const url = ctx.contact_profile_url;
+  if (!url) return ctx;
+  const profile = await getProfileForUrl(url);
+  if (!profile) return ctx;
+  return { ...ctx, contact_profile: profile };
 }
 
 async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
@@ -142,7 +156,6 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
       state.lastContext = ctx;
       state.lastDiagnostics = extracted.diagnostics;
     } else if (state.lastContext) {
-      // Reuse the last extracted context if we have it.
       ctx = state.lastContext;
     } else {
       await ensureContentScriptInjected(tab);
@@ -151,6 +164,7 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
       state.lastContext = ctx;
       state.lastDiagnostics = extracted.diagnostics;
     }
+    ctx = await attachContactProfile(ctx);
     const resp = await postToBackend(ctx, req.mode, req.seed_text);
     state.lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
@@ -159,7 +173,7 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
   }
 }
 
-chrome.runtime.onMessage.addListener((msg: RuntimeMessage, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse) => {
   if (msg.type === "ANALYZE_REQUEST") {
     handleAnalyze(msg).then(sendResponse);
     return true;
@@ -177,12 +191,20 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, _sender, sendResponse
   }
 
   if (msg.type === "CONTEXT_EXTRACTED") {
-    // Observer-driven update: cache it locally so the overlay can show a fresh
-    // preview without re-triggering extraction. Do NOT hit the backend here.
     if (msg.trigger === "observer") {
       state.lastContext = msg.payload;
       state.lastDiagnostics = msg.diagnostics;
     }
+    return false;
+  }
+
+  if (msg.type === "PROFILE_FETCH_REQUEST") {
+    void requestProfileFetch(msg.profileUrl);
+    return false;
+  }
+
+  if (msg.type === "PROFILE_EXTRACTED") {
+    void handleProfileExtracted(msg.payload, sender.tab?.id);
     return false;
   }
 

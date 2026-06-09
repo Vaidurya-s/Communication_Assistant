@@ -6,6 +6,7 @@ import {
   type ExtractionDiagnostics,
   type SelfDetectionPath,
 } from "./diagnostics";
+import { getThreadContactProfileUrl } from "./profile";
 
 function text(el: Element | null | undefined): string {
   return (el?.textContent ?? "").trim();
@@ -181,6 +182,7 @@ export async function extractLinkedInContext(): Promise<ExtractionResult> {
       title: document.title,
       extracted_at: diag.extractedAt,
     },
+    contact_profile_url: getThreadContactProfileUrl(),
   };
 
   // Touch startedAt so the linter doesn't complain in case future work adds
