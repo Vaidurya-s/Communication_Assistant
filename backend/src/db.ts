@@ -24,7 +24,17 @@ export function getDb(): Database.Database {
       first_seen TEXT NOT NULL,
       last_seen TEXT NOT NULL,
       last_thread_url TEXT,
-      suggested_followup_at TEXT
+      suggested_followup_at TEXT,
+      profile_url TEXT,
+      headline TEXT,
+      role TEXT,
+      company TEXT,
+      location TEXT,
+      about TEXT,
+      experience_json TEXT,
+      education_json TEXT,
+      skills_json TEXT,
+      profile_fetched_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS notes (
@@ -47,7 +57,18 @@ export function getDb(): Database.Database {
   `);
 
   // Forward-compatible column additions (no-op if column already exists).
+  // These keep an old memory.sqlite from a prior phase usable after upgrade.
   ensureColumn(db, "contacts", "suggested_followup_at", "TEXT");
+  ensureColumn(db, "contacts", "profile_url", "TEXT");
+  ensureColumn(db, "contacts", "headline", "TEXT");
+  ensureColumn(db, "contacts", "role", "TEXT");
+  ensureColumn(db, "contacts", "company", "TEXT");
+  ensureColumn(db, "contacts", "location", "TEXT");
+  ensureColumn(db, "contacts", "about", "TEXT");
+  ensureColumn(db, "contacts", "experience_json", "TEXT");
+  ensureColumn(db, "contacts", "education_json", "TEXT");
+  ensureColumn(db, "contacts", "skills_json", "TEXT");
+  ensureColumn(db, "contacts", "profile_fetched_at", "TEXT");
 
   return db;
 }

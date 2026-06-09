@@ -10,7 +10,9 @@ import {
   recordStrategy,
   setFollowupAt,
   upsertContact,
+  upsertProfile,
 } from "./memory.js";
+import type { IncomingContactProfile } from "./prompt.js";
 import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
 
@@ -75,6 +77,18 @@ app.post("/analyze", async (req: Request, res: Response) => {
   if (contactName) {
     upsertContact(contactName, threadUrl);
     existingNoteBodies = getNotesFor(contactName).map((n) => n.body);
+
+    // Persist the contact profile (if attached). The extension caches profiles
+    // client-side and re-attaches them on every /analyze; we mirror it here so
+    // the data survives across browser profile resets and is queryable.
+    const incomingProfile = ctx?.contact_profile as IncomingContactProfile | null | undefined;
+    if (incomingProfile && typeof incomingProfile === "object") {
+      try {
+        upsertProfile(contactName, incomingProfile);
+      } catch (err) {
+        console.warn("[analyze] upsertProfile failed:", (err as Error).message);
+      }
+    }
   }
 
   const { instruction, context, resolvedMode, transcript } = buildPrompt({

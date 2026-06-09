@@ -21,6 +21,18 @@ export function mountOverlay(): void {
   document.body.appendChild(host);
 
   const shadow = host.attachShadow({ mode: "open" });
+
+  // Inline stylesheet for animations the overlay relies on. Lives inside the
+  // shadow root so it can't bleed into LinkedIn's page styles.
+  const styleEl = document.createElement("style");
+  styleEl.textContent = `
+    @keyframes commsasst-spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+  `;
+  shadow.appendChild(styleEl);
+
   const reactContainer = document.createElement("div");
   shadow.appendChild(reactContainer);
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AnalyzeRequest, BackendResponse, Mode, RuntimeMessage } from "../shared/messages";
 import { useDraggable, type Position } from "./useDraggable";
 import {
@@ -73,10 +73,23 @@ async function saveManualNote(contact_name: string, note: string): Promise<boole
   }
 }
 
+async function pingHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/health`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 type AnalyzeStatus =
   | { kind: "idle" }
   | { kind: "loading"; mode: Mode }
   | { kind: "error"; message: string };
+
+type BackendHealth = "checking" | "online" | "offline";
 
 interface Props {
   onClose: () => void;
@@ -104,7 +117,15 @@ export function Overlay({ onClose }: Props) {
   const [snapshotExported, setSnapshotExported] = useState(false);
   const [anomalyDismissed, setAnomalyDismissed] = useState(false);
 
+  const [backendHealth, setBackendHealth] = useState<BackendHealth>("checking");
+
   const previewRef = useRef<HTMLTextAreaElement>(null);
+
+  const checkBackend = useCallback(async () => {
+    setBackendHealth("checking");
+    const ok = await pingHealth();
+    setBackendHealth(ok ? "online" : "offline");
+  }, []);
 
   useEffect(() => {
     chrome.storage.local.get([POSITION_KEY, COLLAPSED_KEY]).then((all) => {
@@ -116,6 +137,8 @@ export function Overlay({ onClose }: Props) {
     });
 
     getDebugMode().then(setDebugModeState);
+
+    void checkBackend();
 
     sendBackground({ type: "STATUS_REQUEST" }).then(async (resp) => {
       if (resp?.type === "STATUS_RESPONSE" && resp.lastContext) {
@@ -133,7 +156,7 @@ export function Overlay({ onClose }: Props) {
         setContactInfo(c);
       }
     });
-  }, []);
+  }, [checkBackend]);
 
   const toggleDebugMode = async () => {
     const next = !debugMode;
@@ -159,7 +182,7 @@ export function Overlay({ onClose }: Props) {
     chrome.storage.local.set({ [COLLAPSED_KEY]: next });
   };
 
-  const analyze = async (mode: Mode) => {
+  const analyze = useCallback(async (mode: Mode) => {
     setStatus({ kind: "loading", mode });
     setCopied(false);
     setMemorySaved(false);
@@ -172,16 +195,17 @@ export function Overlay({ onClose }: Props) {
       setPreview(payload.suggested_reply ?? "");
       setMemoryProposal(payload.memory_proposal ?? null);
       setStrategy(payload.strategy ?? null);
-      const status = await sendBackground({ type: "STATUS_REQUEST" });
-      if (status?.type === "STATUS_RESPONSE" && status.lastContext) {
+      setBackendHealth("online");
+      const statusResp = await sendBackground({ type: "STATUS_REQUEST" });
+      if (statusResp?.type === "STATUS_RESPONSE" && statusResp.lastContext) {
         const info = {
-          title: status.lastContext.conversation_title,
-          messages: status.lastContext.messages.length,
-          draftLen: status.lastContext.current_draft.length,
+          title: statusResp.lastContext.conversation_title,
+          messages: statusResp.lastContext.messages.length,
+          draftLen: statusResp.lastContext.current_draft.length,
         };
         setThreadInfo(info);
-        if (status.lastDiagnostics) {
-          setDiagnostics(status.lastDiagnostics);
+        if (statusResp.lastDiagnostics) {
+          setDiagnostics(statusResp.lastDiagnostics);
           setAnomalyDismissed(false);
         }
         const c = await fetchContact(info.title);
@@ -192,17 +216,19 @@ export function Overlay({ onClose }: Props) {
     }
     if (resp?.type === "ERROR") {
       setStatus({ kind: "error", message: resp.message });
+      // A network-shaped error suggests the backend is down. Cheap re-check.
+      if (/fetch|backend|ECONN|network/i.test(resp.message)) void checkBackend();
       return;
     }
     setStatus({ kind: "error", message: "unexpected response" });
-  };
+  }, [preview, checkBackend]);
 
-  const copyPreview = async () => {
+  const copyPreview = useCallback(async () => {
     if (!preview) return;
     await navigator.clipboard.writeText(preview);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
-  };
+  }, [preview]);
 
   const onSaveProposal = async () => {
     if (!memoryProposal) return;
@@ -237,9 +263,46 @@ export function Overlay({ onClose }: Props) {
     setTimeout(() => setCopied(false), 1200);
   };
 
+  // Keyboard shortcuts. Alt+key is used because:
+  //   - it doesn't shadow LinkedIn's own Enter-to-send
+  //   - it works the same on macOS (Option) and Windows/Linux (Alt)
+  //   - single modifier is fast — no Shift gymnastics
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const key = e.key.toLowerCase();
+      switch (key) {
+        case "s":
+          e.preventDefault();
+          void analyze("suggest");
+          return;
+        case "f":
+          e.preventDefault();
+          void analyze("follow_up");
+          return;
+        case "h":
+          if (!preview) return;
+          e.preventDefault();
+          void analyze("shorter");
+          return;
+        case "l":
+          if (!preview) return;
+          e.preventDefault();
+          void analyze("longer");
+          return;
+        case "c":
+          if (!preview) return;
+          e.preventDefault();
+          void copyPreview();
+          return;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [analyze, copyPreview, preview]);
+
   const loadingMode = status.kind === "loading" ? status.mode : null;
   const followupChip = renderFollowupChip(contactInfo);
-  // Re-read on each render — refreshed by state updates after each analyze.
   const armedSnap = getArmedSnapshot();
 
   const exportSnapshot = async (snap: Snapshot) => {
@@ -272,6 +335,16 @@ export function Overlay({ onClose }: Props) {
 
       {!collapsed && (
         <div style={bodyStyle}>
+          {backendHealth === "offline" && (
+            <div style={offlineBannerStyle}>
+              <span>⚠ Backend offline (localhost:8000)</span>
+              <span style={spacerStyle} />
+              <button onClick={() => void checkBackend()} style={retryBtnStyle}>
+                Retry
+              </button>
+            </div>
+          )}
+
           {armedSnap && !anomalyDismissed && (
             <div style={anomalyCardStyle}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>
@@ -314,12 +387,34 @@ export function Overlay({ onClose }: Props) {
           )}
 
           <div style={btnRowStyle}>
-            <ActionButton label="Suggest" onClick={() => analyze("suggest")} loading={loadingMode === "suggest" || loadingMode === "continue_draft"} />
-            <ActionButton label="Follow-up" onClick={() => analyze("follow_up")} loading={loadingMode === "follow_up"} />
+            <ActionButton
+              label="Suggest"
+              shortcut="Alt+S"
+              onClick={() => analyze("suggest")}
+              loading={loadingMode === "suggest" || loadingMode === "continue_draft"}
+            />
+            <ActionButton
+              label="Follow-up"
+              shortcut="Alt+F"
+              onClick={() => analyze("follow_up")}
+              loading={loadingMode === "follow_up"}
+            />
           </div>
           <div style={btnRowStyle}>
-            <ActionButton label="Shorter" onClick={() => analyze("shorter")} loading={loadingMode === "shorter"} disabled={!preview} />
-            <ActionButton label="Longer" onClick={() => analyze("longer")} loading={loadingMode === "longer"} disabled={!preview} />
+            <ActionButton
+              label="Shorter"
+              shortcut="Alt+H"
+              onClick={() => analyze("shorter")}
+              loading={loadingMode === "shorter"}
+              disabled={!preview}
+            />
+            <ActionButton
+              label="Longer"
+              shortcut="Alt+L"
+              onClick={() => analyze("longer")}
+              loading={loadingMode === "longer"}
+              disabled={!preview}
+            />
           </div>
 
           <textarea
@@ -332,7 +427,12 @@ export function Overlay({ onClose }: Props) {
           />
 
           <div style={btnRowStyle}>
-            <button onClick={copyPreview} disabled={!preview} style={primaryBtnStyle}>
+            <button
+              onClick={copyPreview}
+              disabled={!preview}
+              style={primaryBtnStyle}
+              title="Copy (Alt+C)"
+            >
               {copied ? "Copied ✓" : "Copy"}
             </button>
             <button onClick={() => setPreview("")} disabled={!preview} style={ghostBtnStyle}>
@@ -391,12 +491,12 @@ export function Overlay({ onClose }: Props) {
             <div style={errorStyle}>{status.message}</div>
           )}
 
-          {/* Footer: one-line diagnostics summary + debug toggle */}
           <div style={footerStyle}>
             <span style={footerSummaryStyle}>
               {diagnostics ? formatDiagnosticsSummary(diagnostics) : "no extraction yet"}
             </span>
             <span style={spacerStyle} />
+            <span title={SHORTCUT_HELP} style={shortcutHintStyle}>⌨</span>
             <button
               onClick={toggleDebugMode}
               style={footerToggleStyle}
@@ -433,29 +533,63 @@ export function Overlay({ onClose }: Props) {
   );
 }
 
+const SHORTCUT_HELP =
+  "Shortcuts:\n" +
+  "  Alt+S — Suggest\n" +
+  "  Alt+F — Follow-up\n" +
+  "  Alt+H — Shorter\n" +
+  "  Alt+L — Longer\n" +
+  "  Alt+C — Copy preview";
+
 function ActionButton({
   label,
+  shortcut,
   onClick,
   loading,
   disabled,
 }: {
   label: string;
+  shortcut?: string;
   onClick: () => void;
   loading?: boolean;
   disabled?: boolean;
 }) {
+  const isDisabled = !!disabled || !!loading;
   return (
     <button
       onClick={onClick}
-      disabled={loading || disabled}
+      disabled={isDisabled}
+      title={shortcut ? `${label} (${shortcut})` : label}
       style={{
         ...actionBtnStyle,
-        opacity: disabled ? 0.5 : 1,
-        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: isDisabled ? 0.6 : 1,
+        cursor: isDisabled ? "not-allowed" : "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
       }}
     >
-      {loading ? "…" : label}
+      {loading && <Spinner />}
+      <span>{label}</span>
     </button>
+  );
+}
+
+function Spinner() {
+  return (
+    <span
+      aria-label="loading"
+      style={{
+        display: "inline-block",
+        width: 10,
+        height: 10,
+        border: "2px solid #b6c2cf",
+        borderTopColor: "#0a66c2",
+        borderRadius: "50%",
+        animation: "commsasst-spin 0.7s linear infinite",
+      }}
+    />
   );
 }
 
@@ -465,8 +599,8 @@ function renderFollowupChip(c: ContactInfo | null): { label: string } | null {
   if (Number.isNaN(due.getTime())) return null;
   const now = new Date();
   const diffH = (due.getTime() - now.getTime()) / 36e5;
-  if (diffH < -24 * 14) return null; // more than 2 weeks past — stale, hide
-  if (diffH > 24 * 7) return null; // more than a week in the future — not yet
+  if (diffH < -24 * 14) return null;
+  if (diffH > 24 * 7) return null;
   const date = c.suggested_followup_at.slice(0, 10);
   if (diffH < 0) return { label: `Follow-up overdue (was ${date})` };
   if (diffH < 24) return { label: `Follow-up due today (${date})` };
@@ -598,6 +732,30 @@ const errorStyle: React.CSSProperties = {
   wordBreak: "break-word",
 };
 
+const offlineBannerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  background: "#fdecea",
+  color: "#b00020",
+  border: "1px solid #f5c2c0",
+  padding: "6px 8px",
+  borderRadius: 4,
+  fontSize: 11,
+  fontWeight: 500,
+};
+
+const retryBtnStyle: React.CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 11,
+  border: "1px solid #b00020",
+  background: "white",
+  color: "#b00020",
+  borderRadius: 3,
+  cursor: "pointer",
+  fontWeight: 600,
+};
+
 const footerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -624,6 +782,13 @@ const footerToggleStyle: React.CSSProperties = {
   cursor: "pointer",
   color: "#666",
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+};
+
+const shortcutHintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#666",
+  cursor: "help",
+  padding: "0 4px",
 };
 
 const diagPaneStyle: React.CSSProperties = {
