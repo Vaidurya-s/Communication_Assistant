@@ -1,0 +1,12 @@
+{
+  "platform": "linkedin",
+  "conversation_title": "Rahul Sharma",
+  "participants": [{ "name": "Rahul Sharma", "role": "Senior FPGA Engineer at Qualcomm" }],
+  "messages": [
+    { "sender": "Rahul Sharma", "isSelf": false, "timestamp": "10:41 AM", "text": "Hey, saw your post on systolic arrays. Cool stuff. What are you targeting?" },
+    { "sender": "Me", "isSelf": true, "timestamp": "10:43 AM", "text": "Thanks. Edge ML acceleration on FPGA, mostly INT8 quantized models." },
+    { "sender": "Rahul Sharma", "isSelf": false, "timestamp": "10:45 AM", "text": "Nice. Have you looked at Versal AI Engines? Could be interesting for your workload." }
+  ],
+  "current_draft": "",
+  "page_metadata": { "url": "https://www.linkedin.com/messaging/thread/abc", "title": "Messaging", "extracted_at": "2026-05-14T10:46:00.000Z" }
+}

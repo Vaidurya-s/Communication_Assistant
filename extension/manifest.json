@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Comms Assistant (LinkedIn MVP)",
+  "version": "0.1.0",
+  "description": "Extracts conversational context from LinkedIn and sends it to a local AI agent.",
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "Comms Assistant"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "http://localhost:8000/*"
+  ]
+}
