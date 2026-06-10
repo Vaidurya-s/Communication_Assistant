@@ -77,3 +77,14 @@ export function getConfig(): Config {
   };
   return cached;
 }
+
+/**
+ * Drop the cached config and rebuild it from the current process.env. Used by
+ * the settings endpoint after it mutates process.env so a provider change
+ * takes effect without a restart. (Reading from .env alone is not enough — the
+ * loader only fills keys missing from process.env.)
+ */
+export function reloadConfig(): Config {
+  cached = null;
+  return getConfig();
+}

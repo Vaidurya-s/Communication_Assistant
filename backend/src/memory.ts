@@ -135,6 +135,66 @@ export function getContact(name: string): Contact | null {
   return row ? rowToContact(row) : null;
 }
 
+export interface ContactSummary extends Contact {
+  note_count: number;
+  unconfirmed_count: number;
+}
+
+interface ContactSummaryRow extends ContactRow {
+  note_count: number;
+  unconfirmed_count: number;
+}
+
+/**
+ * Every contact, newest activity first, with per-contact note counts. Powers
+ * the management console's list view. The LEFT JOIN keeps contacts that have
+ * no notes yet.
+ */
+export function getAllContacts(): ContactSummary[] {
+  const rows = getDb()
+    .prepare(
+      `
+      SELECT
+        c.*,
+        COUNT(n.id) AS note_count,
+        COALESCE(SUM(CASE WHEN n.confirmed_by_user = 0 THEN 1 ELSE 0 END), 0) AS unconfirmed_count
+      FROM contacts c
+      LEFT JOIN notes n ON n.contact_name = c.name
+      GROUP BY c.name
+      ORDER BY c.last_seen DESC
+      `,
+    )
+    .all() as ContactSummaryRow[];
+  return rows.map((row) => ({
+    ...rowToContact(row),
+    note_count: Number(row.note_count) || 0,
+    unconfirmed_count: Number(row.unconfirmed_count) || 0,
+  }));
+}
+
+/** Delete a contact and (via ON DELETE CASCADE) all of its notes. */
+export function deleteContact(name: string): boolean {
+  if (!name) return false;
+  const info = getDb().prepare(`DELETE FROM contacts WHERE name = ?`).run(name);
+  return info.changes > 0;
+}
+
+/** Delete a single note by id. */
+export function deleteNote(id: number): boolean {
+  if (!Number.isInteger(id)) return false;
+  const info = getDb().prepare(`DELETE FROM notes WHERE id = ?`).run(id);
+  return info.changes > 0;
+}
+
+/** Edit a note's body in place. Rejects an empty body. */
+export function updateNote(id: number, body: string): boolean {
+  if (!Number.isInteger(id)) return false;
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error("note body must be non-empty");
+  const info = getDb().prepare(`UPDATE notes SET body = ? WHERE id = ?`).run(trimmed, id);
+  return info.changes > 0;
+}
+
 interface GetNotesOptions {
   limit?: number;
   /** Default false — only user-confirmed notes are returned. */

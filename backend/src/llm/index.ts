@@ -33,6 +33,15 @@ export function runLLM(instruction: string, context: string): Promise<LLMResult>
   return getProvider().run(instruction, context);
 }
 
+/**
+ * Drop the cached provider so the next runLLM/getProviderName rebuilds it from
+ * a freshly reloaded config. Paired with config.reloadConfig() by the settings
+ * endpoint to switch provider live.
+ */
+export function resetProvider(): void {
+  provider = null;
+}
+
 export function getProviderName(): string {
   return getProvider().name;
 }
