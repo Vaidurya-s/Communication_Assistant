@@ -8,6 +8,7 @@
     "doctor": "node scripts/doctor.mjs",
     "start": "npm --prefix backend run dev",
     "build:extension": "npm --prefix extension run build",
+    "package:extension": "node scripts/package-extension.mjs",
     "init-voice": "npm --prefix backend run init-voice",
     "snapshots:list": "npm --prefix backend run snapshots:list"
   },

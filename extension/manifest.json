@@ -1,11 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Comms Assistant (LinkedIn MVP)",
+  "name": "Comms Assistant",
   "version": "0.1.0",
-  "description": "Extracts conversational context from LinkedIn and sends it to a local AI agent.",
+  "description": "Draft LinkedIn replies in your own voice, using a private AI that runs entirely on your own machine.",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
   "action": {
     "default_popup": "src/popup/index.html",
-    "default_title": "Comms Assistant"
+    "default_title": "Comms Assistant",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
   },
   "background": {
     "service_worker": "src/background/index.ts",

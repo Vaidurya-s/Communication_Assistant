@@ -10,6 +10,8 @@ It's built for people who send a lot of LinkedIn messages — recruiters, founde
 
 > *The panel, conversation, and contact above are a fictional demo — no real messages are shown.*
 
+**▶ Watch the 2-minute demo: [youtu.be/5TVS8WzW9M0](https://youtu.be/5TVS8WzW9M0)**
+
 ---
 
 ## Why it's different
@@ -35,6 +37,102 @@ It's built for people who send a lot of LinkedIn messages — recruiters, founde
 <p align="center">
   <img src="docs/images/overlay-panel.png" alt="The Comms Assistant panel: suggestion, strategy tip, and a one-click memory card" width="320" />
 </p>
+
+---
+
+## How it works
+
+Two pieces — a Chrome extension in your browser and a small backend on your own
+machine. The diagrams below render on GitHub.
+
+### Architecture — three parts, all on your machine
+
+```mermaid
+flowchart LR
+  subgraph Browser["Chrome / Edge"]
+    LI["LinkedIn page"]
+    EXT["Comms Assistant<br/>overlay"]
+  end
+  subgraph Local["Your machine"]
+    BE["Local backend<br/>localhost:8000"]
+    DB[("SQLite<br/>memory")]
+    VP["voice_profile/"]
+  end
+  LLM{{"LLM<br/>gemini CLI · OpenAI-compatible · local"}}
+
+  LI -- "reads conversation" --> EXT
+  EXT -- "POST /analyze" --> BE
+  BE -- "prompt" --> LLM
+  LLM -- "reply" --> BE
+  BE -- "suggestion" --> EXT
+  BE <--> DB
+  BE -- "reads" --> VP
+```
+
+_The only thing that can leave your machine is the AI call you choose — and with
+the local `gemini` CLI or a local model, nothing leaves at all._
+
+### One reply, traced end to end
+
+```mermaid
+sequenceDiagram
+  actor You
+  participant Overlay
+  participant Background
+  participant Content as "Content script"
+  participant Backend as "Local backend"
+  participant LLM
+
+  You->>Overlay: Click "Suggest" (or a tone chip)
+  Overlay->>Background: ANALYZE_REQUEST (+ steer)
+  Background->>Content: extract conversation
+  Content-->>Background: messages · draft · contact profile
+  Background->>Backend: POST /analyze
+  Note over Backend: build prompt =<br/>voice profile + memory + fenced conversation
+  par in parallel
+    Backend->>LLM: draft reply
+  and
+    Backend->>LLM: insight (memory + strategy)
+  end
+  LLM-->>Backend: suggestion · note · follow-up
+  Backend-->>Overlay: suggested_reply
+  You->>Overlay: edit · 👍/👎 · Copy
+```
+
+### Trust boundary — a contact can't hijack your reply
+
+```mermaid
+flowchart TB
+  subgraph Prompt["The prompt sent to the LLM"]
+    direction TB
+    subgraph Trusted["TRUSTED — these give instructions"]
+      VPp["Voice profile"]
+      MEM["Memory notes you confirmed"]
+      TASK["The task + your steer"]
+    end
+    subgraph Untrusted["UNTRUSTED_CONVERSATION — data only"]
+      MSGS["Messages"]
+      DRAFT["Your draft"]
+      PROF["Contact's profile / About text"]
+    end
+  end
+  Untrusted -. "if it looks like an instruction, it's ignored" .-> TASK
+```
+
+_Conversation and profile text are fenced as data; only the voice profile,
+confirmed memory, and your own steer act as instructions._
+
+### The voice loop — it learns how you write, and keeps improving
+
+```mermaid
+flowchart LR
+  RAW["raw_corpus/<br/>your real messages"] --> INIT["npm run init-voice"]
+  INIT --> SP["strategy_analysis.md<br/>(voice profile)"]
+  SP --> REPLY["voice-matched replies"]
+  REPLY --> FB["👍 / 👎 in the overlay"]
+  FB --> FBMD["feedback.md"]
+  FBMD -- "folded back in" --> INIT
+```
 
 ---
 
