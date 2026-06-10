@@ -6,6 +6,10 @@ Comms Assistant is a Chrome extension paired with a small local server that read
 
 It's built for people who send a lot of LinkedIn messages — recruiters, founders, job seekers, networkers — and want a thoughtful first draft in seconds instead of a generic template.
 
+![Comms Assistant drafting a voice-matched reply on a LinkedIn thread](docs/images/overlay-demo.png)
+
+> *The panel, conversation, and contact above are a fictional demo — no real messages are shown.*
+
 ---
 
 ## Why it's different
@@ -28,52 +32,34 @@ It's built for people who send a lot of LinkedIn messages — recruiters, founde
 - **Bring your own AI** — use the local `gemini` CLI, or point it at any OpenAI-compatible service (OpenAI, OpenRouter, Ollama, LM Studio, and more).
 - **Copy, never auto-send** — you always review and edit before anything is sent.
 
+<p align="center">
+  <img src="docs/images/overlay-panel.png" alt="The Comms Assistant panel: suggestion, strategy tip, and a one-click memory card" width="320" />
+</p>
+
 ---
 
 ## Getting started
 
-**You'll need:** [Node.js](https://nodejs.org) 18 or newer, Google Chrome, and one AI option — either the `gemini` CLI signed in on your machine, or an API key for an OpenAI-compatible service.
+**You'll need:** [Node.js](https://nodejs.org) 18+, Google Chrome, and one AI option — the local `gemini` CLI (signed in), or an API key for any OpenAI-compatible service (OpenAI, OpenRouter, Ollama, LM Studio, …).
 
-### 1. Set up your writing voice
-
-The assistant needs a short description of how you write.
+### Quick start
 
 ```bash
-cp voice_profile/templates/strategy_analysis.md.template voice_profile/strategy_analysis.md
+git clone https://github.com/Vaidurya-s/Communication_Assistant.git
+cd Communication_Assistant
+npm run setup        # installs deps, builds the extension, scaffolds your config
 ```
 
-Open that new file and fill in the sections — how you open messages, words you avoid, how you decline things. (The backend won't start until this exists, so you can't forget.)
+Then four short steps:
 
-### 2. Start the local server
+1. **Pick your AI** — edit `backend/.env`. Defaults to the local `gemini` CLI (no key); set `LLM_PROVIDER=openai-compat` and your `OPENAI_API_KEY` to use an API instead.
+2. **Teach it your voice** — drop a few of your real sent messages into `voice_profile/raw_corpus/` and run `npm run init-voice`, or hand-edit `voice_profile/strategy_analysis.md`.
+3. **Start the backend** — `npm start` (runs at `http://localhost:8000`).
+4. **Load the extension** — `chrome://extensions` → Developer mode → **Load unpacked** → `extension/dist`.
 
-```bash
-cd backend
-npm install
-npm run dev          # runs at http://localhost:8000
-```
+Then open a LinkedIn thread, set your display name once via the toolbar icon, and click **Suggest** — edit, **Copy**, paste.
 
-To use an OpenAI-compatible service instead of the `gemini` CLI, copy `backend/.env.example` to `backend/.env` and add your provider details.
-
-### 3. Build and load the extension
-
-```bash
-cd extension
-npm install
-npm run build        # outputs to extension/dist
-```
-
-Then in Chrome:
-
-1. Go to `chrome://extensions`
-2. Turn on **Developer mode** (top-right)
-3. Click **Load unpacked** and select the `extension/dist` folder
-
-### 4. Use it
-
-1. Open `https://www.linkedin.com/messaging/` and pick a conversation.
-2. The Comms Assistant panel appears on the page.
-3. **First time only:** click the extension icon and enter your LinkedIn display name (so it knows which messages are yours).
-4. Click **Suggest** — your draft appears in seconds. Edit it, click **Copy**, and paste into LinkedIn.
+**→ Full walkthrough, AI options, and troubleshooting: [SETUP.md](SETUP.md).**
 
 ---
 
