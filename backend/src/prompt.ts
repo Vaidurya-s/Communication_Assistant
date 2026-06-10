@@ -45,6 +45,12 @@ export interface BuildPromptInput {
    * confirmation, this assumption breaks.
    */
   existingNotes?: string[];
+  /**
+   * Free-form steer from the user ("make it warmer", "mention the demo").
+   * Trusted — it's the user's own instruction — so it's appended to the TASK
+   * directive, OUTSIDE the untrusted boundary.
+   */
+  steer?: string;
 }
 
 const MAX_MESSAGES = 30;
@@ -182,7 +188,14 @@ export function buildPrompt(input: BuildPromptInput): { instruction: string; con
     untrustedBlock,
   ].join("\n");
 
-  const instruction = instructionFor(resolvedMode, seed, draft);
+  let instruction = instructionFor(resolvedMode, seed, draft);
+
+  // Apply the user's steer (trusted) as an extra directive on top of the mode.
+  const steer = (input.steer ?? "").trim();
+  if (steer) {
+    instruction +=
+      `\n\nADDITIONAL INSTRUCTION FROM ME (your user — trusted, follow it): ${steer}`;
+  }
 
   return { instruction, context, resolvedMode, transcript };
 }

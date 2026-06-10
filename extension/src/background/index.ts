@@ -105,8 +105,9 @@ async function postToBackend(
   ctx: ConversationContext,
   mode: AnalyzeRequest["mode"],
   seedText: string | undefined,
+  steer: string | undefined,
 ): Promise<BackendResponse> {
-  const body = { ...ctx, mode, seed_text: seedText ?? "" };
+  const body = { ...ctx, mode, seed_text: seedText ?? "", steer: steer ?? "" };
   const res = await fetch(BACKEND_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -165,7 +166,7 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
       state.lastDiagnostics = extracted.diagnostics;
     }
     ctx = await attachContactProfile(ctx);
-    const resp = await postToBackend(ctx, req.mode, req.seed_text);
+    const resp = await postToBackend(ctx, req.mode, req.seed_text, req.steer);
     state.lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
   } catch (err) {

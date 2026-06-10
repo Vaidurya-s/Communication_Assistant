@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join, resolve } from "node:path";
 import { runLLM } from "./llm/index.js";
 import { ensureWorkspace } from "./workspace.js";
+import { readFeedback } from "./feedback.js";
 
 const VOICE_DIR = resolve(process.cwd(), "..", "voice_profile");
 const RAW_DIR = join(VOICE_DIR, "raw_corpus");
@@ -47,7 +48,10 @@ const INSTRUCTION = [
   "  - Example phrasings I actually use",
   "",
   "Be precise, not generic — 'opens with a one-line acknowledgement, no greeting'",
-  "beats 'friendly and professional'. Output ONLY the Markdown document, nothing else.",
+  "beats 'friendly and professional'.",
+  "If a CORRECTIONS section is present, honour those preferences and let them",
+  "override the raw samples where they conflict. Output ONLY the Markdown document,",
+  "nothing else.",
 ].join("\n");
 
 function collectRaw(): { text: string; fileCount: number } {
@@ -97,9 +101,17 @@ async function main(): Promise<void> {
   }
 
   const clipped = text.length > MAX_CHARS;
-  const context =
+  let context =
     "=== MY REAL PAST MESSAGES (samples to learn my voice from) ===\n" +
     (clipped ? text.slice(0, MAX_CHARS) + "\n…(truncated)" : text);
+
+  // Fold in any corrections captured via 👍/👎 in the overlay.
+  const feedback = readFeedback();
+  if (feedback) {
+    context +=
+      "\n\n=== CORRECTIONS I'VE FLAGGED (apply these — they override the samples where they conflict) ===\n" +
+      feedback.slice(0, 8_000);
+  }
 
   console.log(
     `Found ${fileCount} source file(s)${clipped ? " (truncated to fit)" : ""}. ` +

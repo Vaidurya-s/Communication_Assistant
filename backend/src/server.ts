@@ -16,6 +16,7 @@ import type { IncomingContactProfile } from "./prompt.js";
 import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
+import { appendFeedback } from "./feedback.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -37,9 +38,11 @@ function getVoice(): string {
 }
 
 app.get("/health", (_req: Request, res: Response) => {
+  const voiceChars = getVoice().length;
   res.json({
     ok: true,
-    voiceProfileChars: getVoice().length,
+    voiceProfileChars: voiceChars,
+    voiceProfileOk: voiceChars > 40,
     provider: getProviderName(),
   });
 });
@@ -53,6 +56,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
   const rawMode = typeof body.mode === "string" ? body.mode : "suggest";
   const mode: Mode = VALID_MODES.has(rawMode as Mode) ? (rawMode as Mode) : "suggest";
   const seedText: string = typeof body.seed_text === "string" ? body.seed_text : "";
+  const steer: string = typeof body.steer === "string" ? body.steer : "";
 
   const contactName: string =
     typeof ctx?.conversation_title === "string" ? ctx.conversation_title.trim() : "";
@@ -97,6 +101,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     voiceProfile: getVoice(),
     mode,
     seedText,
+    steer,
     existingNotes: existingNoteBodies,
   });
 
@@ -189,6 +194,33 @@ app.post("/memory/notes/manual", (req: Request, res: Response) => {
     res.json({ id });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// --- Feedback endpoint ------------------------------------------------------
+//
+// 👍/👎 from the overlay. Appended to voice_profile/feedback.md; init-voice
+// folds the corrections into a regenerated voice profile.
+
+app.post("/feedback", (req: Request, res: Response) => {
+  const { rating, note, contact, suggestion } = req.body ?? {};
+  if (rating !== "up" && rating !== "down") {
+    res.status(400).json({ error: "rating must be 'up' or 'down'" });
+    return;
+  }
+  try {
+    appendFeedback(
+      {
+        rating,
+        note: typeof note === "string" ? note : undefined,
+        contact: typeof contact === "string" ? contact : undefined,
+        suggestion: typeof suggestion === "string" ? suggestion : undefined,
+      },
+      new Date().toISOString(),
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 

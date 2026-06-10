@@ -5,6 +5,7 @@
   "description": "LinkedIn AI communication assistant — Chrome extension + local backend.",
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "start": "npm --prefix backend run dev",
     "build:extension": "npm --prefix extension run build",
     "init-voice": "npm --prefix backend run init-voice",

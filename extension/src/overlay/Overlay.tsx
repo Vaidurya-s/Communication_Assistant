@@ -6,6 +6,7 @@ import {
   type ExtractionDiagnostics,
 } from "../content/diagnostics";
 import { getDebugMode, setDebugMode } from "../shared/debug";
+import { getSelfNameSetting, setSelfNameSetting } from "../shared/storage";
 import {
   captureSnapshot,
   clearArmedSnapshot,
@@ -29,6 +30,27 @@ interface ContactInfo {
   name: string;
   suggested_followup_at: string | null;
   notes_count: number;
+}
+
+interface Health {
+  voiceProfileChars: number;
+  voiceProfileOk: boolean;
+  provider: string;
+}
+
+async function fetchHealth(): Promise<Health | null> {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const j = await res.json();
+    return {
+      voiceProfileChars: j.voiceProfileChars ?? 0,
+      voiceProfileOk: !!j.voiceProfileOk,
+      provider: j.provider ?? "?",
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchContact(name: string): Promise<ContactInfo | null> {
@@ -74,16 +96,31 @@ async function saveManualNote(contact_name: string, note: string): Promise<boole
   }
 }
 
-async function pingHealth(): Promise<boolean> {
+async function postFeedback(body: {
+  rating: "up" | "down";
+  note?: string;
+  contact?: string;
+  suggestion?: string;
+}): Promise<boolean> {
   try {
-    const res = await fetch(`${BACKEND_BASE}/health`, {
-      signal: AbortSignal.timeout(3000),
+    const res = await fetch(`${BACKEND_BASE}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     return res.ok;
   } catch {
     return false;
   }
 }
+
+// One-tap steers for the common rewrites.
+const TONES: ReadonlyArray<{ label: string; steer: string }> = [
+  { label: "Warmer", steer: "Make it warmer and more personable, without being gushy." },
+  { label: "Direct", steer: "Make it more direct and concise — get to the point." },
+  { label: "Formal", steer: "Make it more formal and professional." },
+  { label: "Decline", steer: "Politely decline while staying warm and leaving the door open." },
+];
 
 type AnalyzeStatus =
   | { kind: "idle" }
@@ -119,13 +156,24 @@ export function Overlay({ onClose }: Props) {
   const [anomalyDismissed, setAnomalyDismissed] = useState(false);
 
   const [backendHealth, setBackendHealth] = useState<BackendHealth>("checking");
+  const [health, setHealth] = useState<Health | null>(null);
+
+  // Onboarding: self-name + steer + feedback.
+  const [selfName, setSelfName] = useState<string>("");
+  const [nameInput, setNameInput] = useState<string>("");
+  const [nameSaved, setNameSaved] = useState(false);
+  const [steer, setSteer] = useState<string>("");
+  const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
+  const [showFeedbackNote, setShowFeedbackNote] = useState(false);
+  const [feedbackNote, setFeedbackNote] = useState("");
 
   const previewRef = useRef<HTMLTextAreaElement>(null);
 
-  const checkBackend = useCallback(async () => {
+  const refreshHealth = useCallback(async () => {
     setBackendHealth("checking");
-    const ok = await pingHealth();
-    setBackendHealth(ok ? "online" : "offline");
+    const h = await fetchHealth();
+    setHealth(h);
+    setBackendHealth(h ? "online" : "offline");
   }, []);
 
   useEffect(() => {
@@ -138,8 +186,12 @@ export function Overlay({ onClose }: Props) {
     });
 
     getDebugMode().then(setDebugModeState);
+    getSelfNameSetting().then((n) => {
+      setSelfName(n);
+      setNameInput(n);
+    });
 
-    void checkBackend();
+    void refreshHealth();
 
     sendBackground({ type: "STATUS_REQUEST" }).then(async (resp) => {
       if (resp?.type === "STATUS_RESPONSE" && resp.lastContext) {
@@ -157,7 +209,7 @@ export function Overlay({ onClose }: Props) {
         setContactInfo(c);
       }
     });
-  }, [checkBackend]);
+  }, [refreshHealth]);
 
   const toggleDebugMode = async () => {
     const next = !debugMode;
@@ -183,46 +235,74 @@ export function Overlay({ onClose }: Props) {
     chrome.storage.local.set({ [COLLAPSED_KEY]: next });
   };
 
-  const analyze = useCallback(async (mode: Mode) => {
-    setStatus({ kind: "loading", mode });
-    setCopied(false);
-    setMemorySaved(false);
-    const seed_text = mode === "shorter" || mode === "longer" ? preview : undefined;
-    const req: AnalyzeRequest = { type: "ANALYZE_REQUEST", mode, seed_text };
-    const resp = await sendBackground(req);
+  const saveName = async () => {
+    const n = nameInput.trim();
+    await setSelfNameSetting(n);
+    setSelfName(n);
+    setNameSaved(true);
+    setTimeout(() => setNameSaved(false), 1200);
+  };
 
-    if (resp?.type === "BACKEND_RESPONSE") {
-      const payload = resp.payload as BackendResponse;
-      setPreview(payload.suggested_reply ?? "");
-      setMemoryProposal(payload.memory_proposal ?? null);
-      setStrategy(payload.strategy ?? null);
-      setBackendHealth("online");
-      const statusResp = await sendBackground({ type: "STATUS_REQUEST" });
-      if (statusResp?.type === "STATUS_RESPONSE" && statusResp.lastContext) {
-        const info = {
-          title: statusResp.lastContext.conversation_title,
-          messages: statusResp.lastContext.messages.length,
-          draftLen: statusResp.lastContext.current_draft.length,
-        };
-        setThreadInfo(info);
-        if (statusResp.lastDiagnostics) {
-          setDiagnostics(statusResp.lastDiagnostics);
-          setAnomalyDismissed(false);
+  // `steerOverride` lets tone chips / Regenerate inject a steer without waiting
+  // on the steer state to settle.
+  const analyze = useCallback(
+    async (mode: Mode, opts?: { steerOverride?: string }) => {
+      setStatus({ kind: "loading", mode });
+      setCopied(false);
+      setMemorySaved(false);
+      setFeedbackGiven(null);
+      setShowFeedbackNote(false);
+      const seed_text = mode === "shorter" || mode === "longer" ? preview : undefined;
+      const steerVal = (opts?.steerOverride ?? steer).trim() || undefined;
+      const req: AnalyzeRequest = { type: "ANALYZE_REQUEST", mode, seed_text, steer: steerVal };
+      const resp = await sendBackground(req);
+
+      if (resp?.type === "BACKEND_RESPONSE") {
+        const payload = resp.payload as BackendResponse;
+        setPreview(payload.suggested_reply ?? "");
+        setMemoryProposal(payload.memory_proposal ?? null);
+        setStrategy(payload.strategy ?? null);
+        setBackendHealth("online");
+        const statusResp = await sendBackground({ type: "STATUS_REQUEST" });
+        if (statusResp?.type === "STATUS_RESPONSE" && statusResp.lastContext) {
+          const info = {
+            title: statusResp.lastContext.conversation_title,
+            messages: statusResp.lastContext.messages.length,
+            draftLen: statusResp.lastContext.current_draft.length,
+          };
+          setThreadInfo(info);
+          if (statusResp.lastDiagnostics) {
+            setDiagnostics(statusResp.lastDiagnostics);
+            setAnomalyDismissed(false);
+          }
+          const c = await fetchContact(info.title);
+          setContactInfo(c);
         }
-        const c = await fetchContact(info.title);
-        setContactInfo(c);
+        setStatus({ kind: "idle" });
+        return;
       }
-      setStatus({ kind: "idle" });
-      return;
-    }
-    if (resp?.type === "ERROR") {
-      setStatus({ kind: "error", message: resp.message });
-      // A network-shaped error suggests the backend is down. Cheap re-check.
-      if (/fetch|backend|ECONN|network/i.test(resp.message)) void checkBackend();
-      return;
-    }
-    setStatus({ kind: "error", message: "unexpected response" });
-  }, [preview, checkBackend]);
+      if (resp?.type === "ERROR") {
+        setStatus({ kind: "error", message: resp.message });
+        if (/fetch|backend|ECONN|network/i.test(resp.message)) void refreshHealth();
+        return;
+      }
+      setStatus({ kind: "error", message: "unexpected response" });
+    },
+    [preview, refreshHealth, steer],
+  );
+
+  const regenerate = useCallback(() => {
+    const base = steer.trim() ? steer.trim() + ". " : "";
+    void analyze("suggest", {
+      steerOverride:
+        base + "Give a noticeably different alternative — change the opening and structure from the obvious draft.",
+    });
+  }, [analyze, steer]);
+
+  const applyTone = (tone: (typeof TONES)[number]) => {
+    setSteer(tone.steer);
+    void analyze("suggest", { steerOverride: tone.steer });
+  };
 
   const copyPreview = useCallback(async () => {
     if (!preview) return;
@@ -230,6 +310,27 @@ export function Overlay({ onClose }: Props) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }, [preview]);
+
+  const onThumbUp = async () => {
+    setFeedbackGiven("up");
+    await postFeedback({ rating: "up", contact: threadInfo?.title, suggestion: preview });
+  };
+
+  const onThumbDown = () => {
+    setShowFeedbackNote(true);
+  };
+
+  const submitThumbDown = async () => {
+    setFeedbackGiven("down");
+    setShowFeedbackNote(false);
+    await postFeedback({
+      rating: "down",
+      note: feedbackNote.trim() || undefined,
+      contact: threadInfo?.title,
+      suggestion: preview,
+    });
+    setFeedbackNote("");
+  };
 
   const onSaveProposal = async () => {
     if (!memoryProposal) return;
@@ -264,10 +365,8 @@ export function Overlay({ onClose }: Props) {
     setTimeout(() => setCopied(false), 1200);
   };
 
-  // Keyboard shortcuts. Alt+key is used because:
-  //   - it doesn't shadow LinkedIn's own Enter-to-send
-  //   - it works the same on macOS (Option) and Windows/Linux (Alt)
-  //   - single modifier is fast — no Shift gymnastics
+  // Keyboard shortcuts. Alt+key avoids LinkedIn's Enter-to-send and works the
+  // same on macOS (Option) and Windows/Linux (Alt).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
@@ -291,6 +390,11 @@ export function Overlay({ onClose }: Props) {
           e.preventDefault();
           void analyze("longer");
           return;
+        case "r":
+          if (!preview) return;
+          e.preventDefault();
+          regenerate();
+          return;
         case "c":
           if (!preview) return;
           e.preventDefault();
@@ -300,9 +404,10 @@ export function Overlay({ onClose }: Props) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [analyze, copyPreview, preview]);
+  }, [analyze, copyPreview, regenerate, preview]);
 
   const loadingMode = status.kind === "loading" ? status.mode : null;
+  const isLoading = status.kind === "loading";
   const followupChip = renderFollowupChip(contactInfo);
   const armedSnap = getArmedSnapshot();
 
@@ -328,6 +433,12 @@ export function Overlay({ onClose }: Props) {
     void exportSnapshot(captureSnapshot());
   };
 
+  // Onboarding checklist shows until the user has run their first analyze.
+  const voiceOk = backendHealth === "online" && !!health?.voiceProfileOk;
+  const nameOk = selfName.trim().length > 0;
+  const setupComplete = backendHealth === "online" && voiceOk && nameOk;
+  const showChecklist = !threadInfo && !setupComplete;
+
   return (
     <div style={{ ...rootStyle, left: livePosition.x, top: livePosition.y }}>
       <div ref={handleRef} style={headerStyle}>
@@ -347,17 +458,49 @@ export function Overlay({ onClose }: Props) {
             <div style={offlineBannerStyle}>
               <span>⚠ Backend offline (localhost:8000)</span>
               <span style={spacerStyle} />
-              <button onClick={() => void checkBackend()} style={retryBtnStyle}>
+              <button onClick={() => void refreshHealth()} style={retryBtnStyle}>
                 Retry
               </button>
             </div>
           )}
 
+          {showChecklist && (
+            <div style={checklistStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Finish setup</div>
+              <ChecklistItem
+                ok={backendHealth === "online"}
+                label="Backend running"
+                hint={backendHealth === "online" ? `provider: ${health?.provider ?? "?"}` : "run `npm start`"}
+              />
+              <ChecklistItem
+                ok={voiceOk}
+                label="Voice profile loaded"
+                hint={
+                  voiceOk
+                    ? `${health?.voiceProfileChars ?? 0} chars`
+                    : "see SETUP.md → `npm run init-voice`"
+                }
+              />
+              <ChecklistItem ok={nameOk} label="Your name set" hint={nameOk ? selfName : undefined} />
+              {!nameOk && (
+                <div style={{ ...btnRowStyle, marginTop: 6 }}>
+                  <input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    placeholder="Your LinkedIn display name"
+                    style={steerInputStyle}
+                  />
+                  <button onClick={saveName} disabled={!nameInput.trim()} style={primaryBtnStyle}>
+                    {nameSaved ? "Saved ✓" : "Save"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {armedSnap && !anomalyDismissed && (
             <div style={anomalyCardStyle}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                ⚠ Extraction anomaly detected
-              </div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠ Extraction anomaly detected</div>
               <div style={{ fontSize: 11, marginBottom: 6, color: "#7a3e00" }}>
                 {(armedSnap.diagnostics?.anomalies ?? []).join(", ") || "see snapshot"}
               </div>
@@ -384,7 +527,7 @@ export function Overlay({ onClose }: Props) {
                 )}
               </>
             ) : (
-              <span style={{ color: "#666" }}>Open a LinkedIn thread to begin.</span>
+              <span style={{ color: "#666" }}>Open a LinkedIn thread, then click Suggest.</span>
             )}
           </div>
 
@@ -393,6 +536,33 @@ export function Overlay({ onClose }: Props) {
               🔔 {followupChip.label} — click to copy for Calendar/Tasks
             </div>
           )}
+
+          {/* Steer + tone presets */}
+          <input
+            value={steer}
+            onChange={(e) => setSteer(e.target.value)}
+            placeholder="Steer it (optional): 'make it warmer', 'mention the demo'…"
+            style={steerInputStyle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void analyze("suggest");
+              }
+            }}
+          />
+          <div style={chipRowStyle}>
+            {TONES.map((t) => (
+              <button
+                key={t.label}
+                onClick={() => applyTone(t)}
+                disabled={isLoading}
+                style={chipStyle}
+                title={t.steer}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
           <div style={btnRowStyle}>
             <ActionButton
@@ -434,23 +604,51 @@ export function Overlay({ onClose }: Props) {
             rows={6}
           />
 
+          {/* Feedback on the current suggestion */}
+          {preview && status.kind !== "loading" && (
+            <div style={feedbackRowStyle}>
+              {feedbackGiven ? (
+                <span style={{ color: "#15803d" }}>Thanks — noted for your next profile refresh.</span>
+              ) : showFeedbackNote ? (
+                <div style={{ display: "flex", gap: 6, width: "100%" }}>
+                  <input
+                    value={feedbackNote}
+                    onChange={(e) => setFeedbackNote(e.target.value)}
+                    placeholder="What was off? (optional)"
+                    style={steerInputStyle}
+                    autoFocus
+                  />
+                  <button onClick={submitThumbDown} style={primaryBtnStyle}>
+                    Send
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span style={{ color: "#666" }}>Sound like you?</span>
+                  <button onClick={onThumbUp} style={thumbStyle} title="Yes — sounds like me">
+                    👍
+                  </button>
+                  <button onClick={onThumbDown} style={thumbStyle} title="Not quite — tell it why">
+                    👎
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div style={btnRowStyle}>
-            <button
-              onClick={copyPreview}
-              disabled={!preview}
-              style={primaryBtnStyle}
-              title="Copy (Alt+C)"
-            >
+            <button onClick={copyPreview} disabled={!preview} style={primaryBtnStyle} title="Copy (Alt+C)">
               {copied ? "Copied ✓" : "Copy"}
+            </button>
+            <button onClick={regenerate} disabled={!preview || isLoading} style={ghostBtnStyle} title="Regenerate (Alt+R)">
+              ↻ Regenerate
             </button>
             <button onClick={() => setPreview("")} disabled={!preview} style={ghostBtnStyle}>
               Clear
             </button>
           </div>
 
-          {strategy && (
-            <div style={strategyStyle}>💡 {strategy.text}</div>
-          )}
+          {strategy && <div style={strategyStyle}>💡 {strategy.text}</div>}
 
           {memoryProposal && !memorySaved && (
             <div style={memoryCardStyle}>
@@ -495,9 +693,7 @@ export function Overlay({ onClose }: Props) {
             </div>
           )}
 
-          {status.kind === "error" && (
-            <div style={errorStyle}>{status.message}</div>
-          )}
+          {status.kind === "error" && <div style={errorStyle}>{status.message}</div>}
 
           <div style={footerStyle}>
             <span style={footerSummaryStyle}>
@@ -513,11 +709,7 @@ export function Overlay({ onClose }: Props) {
               {debugMode ? "debug ●" : "debug ○"}
             </button>
             {debugMode && (
-              <button
-                onClick={() => setShowDiagPane((v) => !v)}
-                style={footerToggleStyle}
-                title="Toggle diagnostics detail"
-              >
+              <button onClick={() => setShowDiagPane((v) => !v)} style={footerToggleStyle} title="Toggle diagnostics detail">
                 {showDiagPane ? "▾" : "▸"}
               </button>
             )}
@@ -526,9 +718,7 @@ export function Overlay({ onClose }: Props) {
           {debugMode && showDiagPane && (
             <>
               <pre style={diagPaneStyle}>
-                {diagnostics
-                  ? JSON.stringify(diagnostics, null, 2)
-                  : "(no extraction recorded yet)"}
+                {diagnostics ? JSON.stringify(diagnostics, null, 2) : "(no extraction recorded yet)"}
               </pre>
               <button onClick={onManualCapture} style={ghostBtnStyle}>
                 {snapshotButtonLabel("Capture snapshot")}
@@ -547,7 +737,18 @@ const SHORTCUT_HELP =
   "  Alt+F — Follow-up\n" +
   "  Alt+H — Shorter\n" +
   "  Alt+L — Longer\n" +
+  "  Alt+R — Regenerate\n" +
   "  Alt+C — Copy preview";
+
+function ChecklistItem({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "1px 0" }}>
+      <span style={{ color: ok ? "#15803d" : "#b45309" }}>{ok ? "✓" : "○"}</span>
+      <span>{label}</span>
+      {hint && <span style={{ color: "#888", fontSize: 11 }}>— {hint}</span>}
+    </div>
+  );
+}
 
 function ActionButton({
   label,
@@ -680,6 +881,29 @@ const previewStyle: React.CSSProperties = {
   resize: "vertical",
 };
 
+const steerInputStyle: React.CSSProperties = {
+  flex: 1,
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "5px 8px",
+  fontSize: 12,
+  fontFamily: "inherit",
+  border: "1px solid #d0d7de",
+  borderRadius: 4,
+};
+
+const chipRowStyle: React.CSSProperties = { display: "flex", gap: 6, flexWrap: "wrap" };
+
+const chipStyle: React.CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 11,
+  border: "1px solid #c7d2e0",
+  background: "#eef3f8",
+  color: "#0a66c2",
+  borderRadius: 12,
+  cursor: "pointer",
+};
+
 const primaryBtnStyle: React.CSSProperties = {
   flex: 1,
   padding: "6px 10px",
@@ -701,6 +925,23 @@ const ghostBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const thumbStyle: React.CSSProperties = {
+  border: "1px solid #d0d7de",
+  background: "white",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  padding: "2px 8px",
+  lineHeight: 1.2,
+};
+
+const feedbackRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 11,
+};
+
 const strategyStyle: React.CSSProperties = {
   background: "#fff8e1",
   border: "1px solid #ffe082",
@@ -718,6 +959,14 @@ const memoryCardStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 6,
+};
+
+const checklistStyle: React.CSSProperties = {
+  background: "#f0f6fc",
+  border: "1px solid #c7d2e0",
+  padding: 8,
+  borderRadius: 4,
+  fontSize: 12,
 };
 
 const followupChipStyle: React.CSSProperties = {

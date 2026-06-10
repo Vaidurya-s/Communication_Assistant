@@ -8,6 +8,12 @@ export interface AnalyzeRequest {
   type: "ANALYZE_REQUEST";
   mode: Mode;
   seed_text?: string;
+  /**
+   * Free-form steering instruction typed by the user in the overlay
+   * ("make it warmer", "mention the demo", "decline politely"). Trusted —
+   * it's the user's own instruction, applied OUTSIDE the untrusted boundary.
+   */
+  steer?: string;
 }
 
 export interface BackendResponse {
