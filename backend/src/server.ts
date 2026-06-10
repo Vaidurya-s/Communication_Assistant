@@ -15,6 +15,7 @@ import {
 import type { IncomingContactProfile } from "./prompt.js";
 import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
+import { listSnapshots, saveSnapshot } from "./snapshots.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -188,6 +189,35 @@ app.post("/memory/notes/manual", (req: Request, res: Response) => {
     res.json({ id });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// --- Snapshot endpoints ----------------------------------------------------
+//
+// First-class snapshot workflow: extension POSTs a forensic capture, backend
+// writes it to data/snapshots/ with a timestamped filename so it can be
+// grep'd / diff'd / replayed when fixing selectors.ts against real DOM.
+
+app.post("/snapshots", (req: Request, res: Response) => {
+  if (!req.body || typeof req.body !== "object") {
+    res.status(400).json({ error: "snapshot body required (JSON object)" });
+    return;
+  }
+  try {
+    const result = saveSnapshot(req.body);
+    console.log(`[snapshots] saved ${result.filename} (${result.bytes} bytes)`);
+    res.json(result);
+  } catch (err) {
+    console.error("[snapshots] save failed:", err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.get("/snapshots", (_req: Request, res: Response) => {
+  try {
+    res.json({ snapshots: listSnapshots() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 

@@ -12,6 +12,7 @@ import {
   getArmedSnapshot,
   type Snapshot,
 } from "../content/snapshot";
+import { exportSnapshot as exportSnapshotApi, type SnapshotExportResult } from "./snapshotApi";
 
 const POSITION_KEY = "overlayPosition";
 const COLLAPSED_KEY = "overlayCollapsed";
@@ -114,7 +115,7 @@ export function Overlay({ onClose }: Props) {
   const [diagnostics, setDiagnostics] = useState<ExtractionDiagnostics | null>(null);
   const [debugMode, setDebugModeState] = useState<boolean>(false);
   const [showDiagPane, setShowDiagPane] = useState<boolean>(false);
-  const [snapshotExported, setSnapshotExported] = useState(false);
+  const [snapshotExport, setSnapshotExport] = useState<SnapshotExportResult | null>(null);
   const [anomalyDismissed, setAnomalyDismissed] = useState(false);
 
   const [backendHealth, setBackendHealth] = useState<BackendHealth>("checking");
@@ -306,9 +307,16 @@ export function Overlay({ onClose }: Props) {
   const armedSnap = getArmedSnapshot();
 
   const exportSnapshot = async (snap: Snapshot) => {
-    await navigator.clipboard.writeText(JSON.stringify(snap, null, 2));
-    setSnapshotExported(true);
-    setTimeout(() => setSnapshotExported(false), 1500);
+    const result = await exportSnapshotApi(snap);
+    setSnapshotExport(result);
+    setTimeout(() => setSnapshotExport(null), 2200);
+  };
+
+  const snapshotButtonLabel = (defaultLabel: string): string => {
+    if (!snapshotExport) return defaultLabel;
+    if (snapshotExport.kind === "saved") return `Saved ${snapshotExport.filename} ✓`;
+    if (snapshotExport.kind === "clipboard") return "Backend offline — copied ✓";
+    return `Failed: ${snapshotExport.reason}`;
   };
 
   const onDismissAnomaly = () => {
@@ -355,7 +363,7 @@ export function Overlay({ onClose }: Props) {
               </div>
               <div style={btnRowStyle}>
                 <button onClick={() => void exportSnapshot(armedSnap)} style={primaryBtnStyle}>
-                  {snapshotExported ? "Copied ✓" : "Export JSON"}
+                  {snapshotButtonLabel("Save snapshot")}
                 </button>
                 <button onClick={onDismissAnomaly} style={ghostBtnStyle}>
                   Dismiss
@@ -523,7 +531,7 @@ export function Overlay({ onClose }: Props) {
                   : "(no extraction recorded yet)"}
               </pre>
               <button onClick={onManualCapture} style={ghostBtnStyle}>
-                {snapshotExported ? "Snapshot copied ✓" : "Capture snapshot"}
+                {snapshotButtonLabel("Capture snapshot")}
               </button>
             </>
           )}

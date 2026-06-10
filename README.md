@@ -1,72 +1,91 @@
-# Comms Assistant — LinkedIn MVP
+# Comms Assistant
 
-Chrome extension that extracts conversational context from LinkedIn messaging and POSTs it to a local backend. The backend runs your `gemini` CLI as a child process, prompting it with the conversation + your `voice_profile/` so suggested replies sound like you.
+**Reply on LinkedIn in your own voice — without staring at a blank box.**
 
-## Prerequisites
+Comms Assistant is a Chrome extension paired with a small local server that reads the LinkedIn conversation you're looking at, understands who you're talking to, and drafts a reply that actually sounds like *you*. Everything runs on your own machine. Your messages, your contacts, and your writing style never leave your computer.
 
-- Node 18+
-- `gemini` CLI on PATH, signed in (run it once interactively first to complete auth)
+It's built for people who send a lot of LinkedIn messages — recruiters, founders, job seekers, networkers — and want a thoughtful first draft in seconds instead of a generic template.
 
-## Layout
+---
 
-- `extension/` — MV3 Chrome extension (TypeScript + Vite + React popup)
-- `backend/` — local Node + Express server (`POST /analyze` → gemini)
+## Why it's different
 
-## Run
+- **It writes like you, not like a robot.** You give it a short profile of your own writing style, and every suggestion is matched to that voice.
+- **It remembers people.** Notes you confirm about a contact — and the details from their LinkedIn profile — are saved locally and used to make future replies sharper.
+- **It stays private by design.** No cloud account, no data collection. The AI runs through your own local setup, and your conversation history is yours alone.
+- **It's safe against trickery.** Message content and profile text are treated as untrusted, so a contact can't sneak hidden instructions into a reply.
 
-In two terminals:
+---
+
+## Features
+
+- **One-click reply suggestions** in a floating, draggable panel that sits right on top of LinkedIn.
+- **Four reply modes** — Suggest a fresh reply, write a Follow-up to revive a quiet thread, or make the current draft Shorter or Longer.
+- **Keyboard shortcuts** — `Alt+S` Suggest, `Alt+F` Follow-up, `Alt+H` Shorter, `Alt+L` Longer, `Alt+C` Copy.
+- **Contact memory** — confirm a fact about someone with one click; it's remembered next time.
+- **Profile enrichment** — automatically reads a contact's role, company, and background to ground each reply.
+- **Follow-up reminders** — when a conversation suggests "check back in a few days," you get a gentle nudge you can copy into your calendar.
+- **Bring your own AI** — use the local `gemini` CLI, or point it at any OpenAI-compatible service (OpenAI, OpenRouter, Ollama, LM Studio, and more).
+- **Copy, never auto-send** — you always review and edit before anything is sent.
+
+---
+
+## Getting started
+
+**You'll need:** [Node.js](https://nodejs.org) 18 or newer, Google Chrome, and one AI option — either the `gemini` CLI signed in on your machine, or an API key for an OpenAI-compatible service.
+
+### 1. Set up your writing voice
+
+The assistant needs a short description of how you write.
 
 ```bash
-# terminal 1
-cd backend
-npm install
-npm run dev      # listens on http://localhost:8000
+cp voice_profile/templates/strategy_analysis.md.template voice_profile/strategy_analysis.md
 ```
 
+Open that new file and fill in the sections — how you open messages, words you avoid, how you decline things. (The backend won't start until this exists, so you can't forget.)
+
+### 2. Start the local server
+
 ```bash
-# terminal 2
+cd backend
+npm install
+npm run dev          # runs at http://localhost:8000
+```
+
+To use an OpenAI-compatible service instead of the `gemini` CLI, copy `backend/.env.example` to `backend/.env` and add your provider details.
+
+### 3. Build and load the extension
+
+```bash
 cd extension
 npm install
-npm run build    # outputs to extension/dist
+npm run build        # outputs to extension/dist
 ```
 
 Then in Chrome:
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked** → select `extension/dist`
-4. Open `https://www.linkedin.com/messaging/`, pick a thread
-5. Click the extension icon
-6. **First-time setup**: enter your LinkedIn display name in the popup (used to mark which messages are yours) → Save
-7. Click **Suggest a reply**
+1. Go to `chrome://extensions`
+2. Turn on **Developer mode** (top-right)
+3. Click **Load unpacked** and select the `extension/dist` folder
 
-`npm run dev` in the extension folder runs Vite in watch mode if you want hot rebuilds — the unpacked extension reloads on its own.
+### 4. Use it
 
-## Icons
+1. Open `https://www.linkedin.com/messaging/` and pick a conversation.
+2. The Comms Assistant panel appears on the page.
+3. **First time only:** click the extension icon and enter your LinkedIn display name (so it knows which messages are yours).
+4. Click **Suggest** — your draft appears in seconds. Edit it, click **Copy**, and paste into LinkedIn.
 
-No icons are shipped. Chrome uses a default puzzle-piece icon. To add your own, drop `16.png`, `48.png`, `128.png` into `extension/public/icons/` and add an `"icons"` block to `extension/manifest.json`.
+---
 
-## What this MVP does
+## On the roadmap
 
-- Detects LinkedIn messaging pages.
-- On the popup's **Suggest a reply** button: auto-scrolls the message list to load older messages (capped, jittered, max ~8s), reads the rendered DOM, extracts `{conversation_title, participants, messages[], current_draft, page_metadata}`, POSTs to `http://localhost:8000/analyze`.
-- Backend loads `voice_profile/*.md` once at startup, builds a prompt (voice profile + conversation transcript + draft if any), pipes it to `gemini` on stdin, returns the model's reply as `suggested_reply`.
-- If you've started typing a reply, the model is asked to **continue/rewrite your draft** instead of starting from scratch.
-- A passive `MutationObserver` scoped to the message list also re-extracts on DOM changes and caches the latest context in the service worker (no backend POST on observer fires).
-- SPA route changes are detected by hooking `history.pushState/replaceState` — no document-wide observer.
+- Support for more platforms — WhatsApp, Gmail, and others.
+- Optional one-click calendar and task reminders for follow-ups.
+- Smarter memory that learns patterns across all your conversations.
+- A guided first-run setup so getting started is even quicker.
 
-## What it explicitly does not do (yet)
+---
 
-- No vector DB / persistent memory across conversations
-- No WhatsApp / Gmail / X extractors
-- No auto-sending replies
-- No group thread participant resolution
+## Contributing & feedback
 
-## Key files when something breaks
-
-- `extension/src/content/selectors.ts` — every LinkedIn DOM selector lives here. Fix breakage here first.
-- `extension/src/content/linkedin.ts` — extractor, scroll backfill, observer wiring, `isSelf` resolution.
-- `extension/src/background/index.ts` — message router; only place that talks to the backend.
-- `backend/src/prompt.ts` — prompt assembly. Tune wording, recency window, etc. here.
-- `backend/src/gemini.ts` — `gemini` subprocess wrapper. Swap models via `GEMINI_BIN` env or extra CLI args.
-- `voice_profile/*.md` — edit your style; backend re-reads on restart.
+This is an active project, and thoughtful input is always welcome — whether it's a bug report, a feature idea, or a pull request. If something feels confusing or could work better, that's exactly the kind of feedback that helps most. Open an issue or start a discussion, and let's make replying on LinkedIn feel effortless.

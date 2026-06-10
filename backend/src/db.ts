@@ -49,7 +49,6 @@ export function getDb(): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_notes_contact ON notes(contact_name);
-    CREATE INDEX IF NOT EXISTS idx_notes_confirmed ON notes(confirmed_by_user);
 
     CREATE TABLE IF NOT EXISTS strategy_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +78,12 @@ export function getDb(): Database.Database {
   ensureColumn(db, "notes", "proposed_by", "TEXT NOT NULL DEFAULT 'llm'");
   ensureColumn(db, "notes", "confirmed_by_user", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "notes", "confirmed_at", "TEXT");
+
+  // Index on confirmed_by_user is created AFTER the column migration above.
+  // On a pre-Phase-7 DB the column doesn't exist until ensureColumn adds it,
+  // so creating this index inside the initial CREATE block would crash with
+  // "no such column: confirmed_by_user".
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_notes_confirmed ON notes(confirmed_by_user)`);
 
   return db;
 }
