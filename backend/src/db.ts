@@ -4,17 +4,22 @@ import { resolve, dirname } from "node:path";
 
 // SQLite file lives in backend/data/ (gitignored). Schema is applied
 // idempotently on every boot — fine for a single-user local server.
-const DB_PATH = resolve(process.cwd(), "data", "memory.sqlite");
+// The path is read lazily (here, not at module load) so a test can point
+// COMMS_DB_PATH at a throwaway DB before the first getDb() call.
+function dbPath(): string {
+  return process.env.COMMS_DB_PATH ?? resolve(process.cwd(), "data", "memory.sqlite");
+}
 
 let db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (db) return db;
 
-  const dir = dirname(DB_PATH);
+  const path = dbPath();
+  const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  db = new Database(DB_PATH);
+  db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 
@@ -86,6 +91,17 @@ export function getDb(): Database.Database {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_notes_confirmed ON notes(confirmed_by_user)`);
 
   return db;
+}
+
+/**
+ * Test seam: close and drop the cached singleton so the next getDb()
+ * reconnects (against a freshly set COMMS_DB_PATH). No-op in production.
+ */
+export function resetDb(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
 }
 
 function ensureColumn(d: Database.Database, table: string, column: string, type: string): void {

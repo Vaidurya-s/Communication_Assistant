@@ -200,9 +200,12 @@ flowchart LR
 
 ## On the roadmap
 
-- Support for more platforms — Gmail first, then WhatsApp and others.
-- Smarter memory that learns patterns across all your conversations.
-- An optional hosted mode with per-account data isolation — see [docs/ROADMAP-HOSTING.md](docs/ROADMAP-HOSTING.md).
+Four tracks, sequenced in the full [roadmap](docs/ROADMAP.md):
+
+- **Ship & harden** — a first test suite + CI, LinkedIn-selector resilience, and a Chrome Web Store release.
+- **More platforms** — Gmail first (behind a platform-extractor abstraction), then others.
+- **Deeper intelligence** — a voice-quality eval loop, reply variations, and cross-conversation memory.
+- **Hosted mode** — an optional online service with per-account data isolation ([details](docs/ROADMAP-HOSTING.md)).
 
 ---
 

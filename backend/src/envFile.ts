@@ -26,12 +26,12 @@ function quoteIfNeeded(value: string): string {
  * + provider caches — config.ts's loader only fills keys MISSING from
  * process.env, so a freshly-written .env value would otherwise be ignored.
  */
-export function writeEnv(updates: Record<string, string>): void {
+export function writeEnv(updates: Record<string, string>, customPath: string = ENV_PATH): void {
   const keys = Object.keys(updates);
   if (keys.length === 0) return;
 
   const remaining = new Set(keys);
-  const lines = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, "utf-8").split(/\r?\n/) : [];
+  const lines = existsSync(customPath) ? readFileSync(customPath, "utf-8").split(/\r?\n/) : [];
 
   const out = lines.map((line) => {
     const t = line.trim();
@@ -54,5 +54,5 @@ export function writeEnv(updates: Record<string, string>): void {
 
   // Avoid a leading blank line when creating a brand-new file.
   const body = out.join("\n").replace(/^\n+/, "");
-  writeFileSync(ENV_PATH, body.endsWith("\n") ? body : body + "\n", "utf-8");
+  writeFileSync(customPath, body.endsWith("\n") ? body : body + "\n", "utf-8");
 }

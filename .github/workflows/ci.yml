@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    name: backend (build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          # No root lockfile — point the npm cache at this subdir's lockfile.
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build   # tsc (test files excluded via tsconfig)
+      - run: npm test        # vitest run
+
+  extension:
+    name: extension (build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm run build   # tsc --noEmit && vite build
+      - run: npm test        # vitest run

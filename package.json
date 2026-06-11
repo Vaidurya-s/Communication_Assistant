@@ -10,7 +10,8 @@
     "build:extension": "npm --prefix extension run build",
     "package:extension": "node scripts/package-extension.mjs",
     "init-voice": "npm --prefix backend run init-voice",
-    "snapshots:list": "npm --prefix backend run snapshots:list"
+    "snapshots:list": "npm --prefix backend run snapshots:list",
+    "test": "npm --prefix backend test && npm --prefix extension test"
   },
   "engines": {
     "node": ">=18"

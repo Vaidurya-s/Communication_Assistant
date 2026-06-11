@@ -8,7 +8,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "init-voice": "tsx src/initVoice.ts",
-    "snapshots:list": "tsx scripts/list-snapshots.ts"
+    "snapshots:list": "tsx scripts/list-snapshots.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -21,6 +23,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.12.7",
     "tsx": "^4.7.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.9"
   }
 }
