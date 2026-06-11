@@ -76,6 +76,11 @@ Common `OPENAI_BASE_URL` values:
 get committed, and with `gemini-cli` or a local Ollama/LM Studio, nothing leaves
 your machine at all.
 
+> **Tip:** you don't have to edit `.env` by hand. Once the backend is running
+> (Section 5), open the dashboard's **Settings** to pick a provider from a list
+> (OpenAI, Anthropic, Gemini, OpenRouter, Mistral, Groq, Ollama, LM Studio, …),
+> paste a key, and apply it live — no restart.
+
 ---
 
 ## 4. Teach it your voice
@@ -129,6 +134,20 @@ terminal:
 curl http://localhost:8000/health
 # {"ok":true,"voiceProfileChars":<N>,"provider":"gemini-cli"}
 ```
+
+### The dashboard
+
+Open **[http://localhost:8000](http://localhost:8000)** in your browser for the
+console — a local control center for the assistant:
+
+- **Overview** — metrics and a live setup checklist.
+- **Contacts** — browse, search, edit, and delete everyone it remembers, with their enriched profile and your notes.
+- **Follow-ups** — send a reminder straight to **Google Calendar** or export `.ics`.
+- **Voice profile** — read the compiled voice and your 👍/👎 history.
+- **Activity** — the strategy reads generated while drafting.
+- **Settings** — switch AI provider live, and toggle dark / light theme.
+
+It's the easiest way to configure and inspect the assistant without touching files.
 
 ---
 

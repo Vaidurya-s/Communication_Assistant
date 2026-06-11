@@ -6,9 +6,9 @@ Comms Assistant is a Chrome extension paired with a small local server that read
 
 It's built for people who send a lot of LinkedIn messages — recruiters, founders, job seekers, networkers — and want a thoughtful first draft in seconds instead of a generic template.
 
-![Comms Assistant drafting a voice-matched reply on a LinkedIn thread](docs/images/overlay-demo.png)
+![Comms Assistant's local console — a private control center for everything it remembers and does](docs/images/dashboard-overview.png)
 
-> *The panel, conversation, and contact above are a fictional demo — no real messages are shown.*
+> *A private console served from your own machine. Everything shown is a fictional demo — no real data.*
 
 **▶ Watch the 2-minute demo: [youtu.be/5TVS8WzW9M0](https://youtu.be/5TVS8WzW9M0)**
 
@@ -23,6 +23,46 @@ It's built for people who send a lot of LinkedIn messages — recruiters, founde
 
 ---
 
+## The dashboard — your local control center
+
+Comms Assistant serves a full dashboard from the backend at **http://localhost:8000/** — a
+private, on-device console for everything the assistant remembers and does. No terminal
+required, dark and light themes included.
+
+- **Overview** — at-a-glance metrics and a live getting-started checklist.
+- **Contacts** — browse, search, and filter everyone the assistant remembers, with their enriched LinkedIn profile and your confirmed notes; edit, confirm, or delete inline.
+- **Follow-ups** — everything flagged for a check-back, with one-click **Google Calendar** and **.ics** export.
+- **Voice profile** — read the compiled voice the assistant writes in, plus your 👍/👎 feedback history.
+- **Activity** — a timeline of the strategic reads generated while drafting.
+- **Settings** — switch between any LLM provider and paste a key, applied live without a restart.
+
+<p align="center">
+  <img src="docs/images/dashboard-contacts.png" alt="Contacts — a contact's enriched profile and notes" width="49%" />
+  <img src="docs/images/dashboard-followups.png" alt="Follow-ups — with Google Calendar and .ics export" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/images/dashboard-voice.png" alt="Voice profile — the compiled voice and feedback history" width="49%" />
+  <img src="docs/images/dashboard-settings.png" alt="Settings — switch LLM provider live" width="49%" />
+</p>
+
+---
+
+## On LinkedIn — the overlay
+
+On any messaging thread, a draggable panel drafts a reply in your voice right where you're
+working. Steer the tone, rate the result, save what it learns, and copy when it's right —
+nothing is ever sent for you.
+
+<p align="center">
+  <img src="docs/images/overlay-demo.png" alt="The overlay drafting a voice-matched reply, with tone steers, a strategy tip, and a one-click memory card" width="46%" />
+  &nbsp;&nbsp;
+  <img src="docs/images/overlay-panel.png" alt="The overlay's first-run checklist and reply controls" width="46%" />
+</p>
+
+> *The panel, conversation, and contact above are a fictional demo — no real messages are shown.*
+
+---
+
 ## Features
 
 - **One-click reply suggestions** in a floating, draggable panel that sits right on top of LinkedIn.
@@ -30,13 +70,35 @@ It's built for people who send a lot of LinkedIn messages — recruiters, founde
 - **Keyboard shortcuts** — `Alt+S` Suggest, `Alt+F` Follow-up, `Alt+H` Shorter, `Alt+L` Longer, `Alt+C` Copy.
 - **Contact memory** — confirm a fact about someone with one click; it's remembered next time.
 - **Profile enrichment** — automatically reads a contact's role, company, and background to ground each reply.
-- **Follow-up reminders** — when a conversation suggests "check back in a few days," you get a gentle nudge you can copy into your calendar.
-- **Bring your own AI** — use the local `gemini` CLI, or point it at any OpenAI-compatible service (OpenAI, OpenRouter, Ollama, LM Studio, and more).
+- **Follow-up reminders** — when a conversation suggests checking back, you get a nudge you can send straight to **Google Calendar** (or export as `.ics`).
+- **Local dashboard** — a private control center at `localhost:8000` to browse contacts and notes, manage follow-ups, review your voice profile, and switch AI providers — no terminal needed.
+- **Bring your own AI** — the local `gemini` CLI, or any OpenAI-compatible service (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more) — switchable live from the dashboard.
 - **Copy, never auto-send** — you always review and edit before anything is sent.
 
-<p align="center">
-  <img src="docs/images/overlay-panel.png" alt="The Comms Assistant panel: suggestion, strategy tip, and a one-click memory card" width="320" />
-</p>
+---
+
+## Getting started
+
+**You'll need:** [Node.js](https://nodejs.org) 18+, Google Chrome, and one AI option — the local `gemini` CLI (signed in), or an API key for any OpenAI-compatible service (OpenAI, OpenRouter, Ollama, LM Studio, …).
+
+### Quick start
+
+```bash
+git clone https://github.com/Vaidurya-s/Communication_Assistant.git
+cd Communication_Assistant
+npm run setup        # installs deps, builds the extension, scaffolds your config
+```
+
+Then four short steps:
+
+1. **Pick your AI** — defaults to the local `gemini` CLI (no key). To use an API instead, either edit `backend/.env`, or just pick a provider and paste a key in the dashboard's **Settings** once the backend is running (step 3).
+2. **Teach it your voice** — drop a few of your real sent messages into `voice_profile/raw_corpus/` and run `npm run init-voice`, or hand-edit `voice_profile/strategy_analysis.md`.
+3. **Start the backend** — `npm start`, then open the **dashboard at [http://localhost:8000](http://localhost:8000)** to pick your AI, browse memory, and manage follow-ups.
+4. **Load the extension** — `chrome://extensions` → Developer mode → **Load unpacked** → `extension/dist`.
+
+Then open a LinkedIn thread, set your display name once via the toolbar icon, and click **Suggest** — edit, **Copy**, paste.
+
+**→ Full walkthrough, AI options, and troubleshooting: [SETUP.md](SETUP.md).**
 
 ---
 
@@ -136,37 +198,11 @@ flowchart LR
 
 ---
 
-## Getting started
-
-**You'll need:** [Node.js](https://nodejs.org) 18+, Google Chrome, and one AI option — the local `gemini` CLI (signed in), or an API key for any OpenAI-compatible service (OpenAI, OpenRouter, Ollama, LM Studio, …).
-
-### Quick start
-
-```bash
-git clone https://github.com/Vaidurya-s/Communication_Assistant.git
-cd Communication_Assistant
-npm run setup        # installs deps, builds the extension, scaffolds your config
-```
-
-Then four short steps:
-
-1. **Pick your AI** — edit `backend/.env`. Defaults to the local `gemini` CLI (no key); set `LLM_PROVIDER=openai-compat` and your `OPENAI_API_KEY` to use an API instead.
-2. **Teach it your voice** — drop a few of your real sent messages into `voice_profile/raw_corpus/` and run `npm run init-voice`, or hand-edit `voice_profile/strategy_analysis.md`.
-3. **Start the backend** — `npm start` (runs at `http://localhost:8000`).
-4. **Load the extension** — `chrome://extensions` → Developer mode → **Load unpacked** → `extension/dist`.
-
-Then open a LinkedIn thread, set your display name once via the toolbar icon, and click **Suggest** — edit, **Copy**, paste.
-
-**→ Full walkthrough, AI options, and troubleshooting: [SETUP.md](SETUP.md).**
-
----
-
 ## On the roadmap
 
-- Support for more platforms — WhatsApp, Gmail, and others.
-- Optional one-click calendar and task reminders for follow-ups.
+- Support for more platforms — Gmail first, then WhatsApp and others.
 - Smarter memory that learns patterns across all your conversations.
-- A guided first-run setup so getting started is even quicker.
+- An optional hosted mode with per-account data isolation — see [docs/ROADMAP-HOSTING.md](docs/ROADMAP-HOSTING.md).
 
 ---
 

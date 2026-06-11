@@ -440,33 +440,33 @@ export function Overlay({ onClose }: Props) {
   const showChecklist = !threadInfo && !setupComplete;
 
   return (
-    <div style={{ ...rootStyle, left: livePosition.x, top: livePosition.y }}>
-      <div ref={handleRef} style={headerStyle}>
-        <span style={titleStyle}>Comms Assistant</span>
-        <span style={spacerStyle} />
-        <button onClick={toggleCollapsed} style={iconBtnStyle} title={collapsed ? "Expand" : "Collapse"}>
+    <div className="ca-root" style={{ left: livePosition.x, top: livePosition.y }}>
+      <div ref={handleRef} className="ca-header">
+        <span className="ca-title">Comms Assistant</span>
+        <span className="ca-spacer" />
+        <button onClick={toggleCollapsed} className="ca-icon-btn" title={collapsed ? "Expand" : "Collapse"}>
           {collapsed ? "▢" : "—"}
         </button>
-        <button onClick={onClose} style={iconBtnStyle} title="Close">
+        <button onClick={onClose} className="ca-icon-btn" title="Close">
           ×
         </button>
       </div>
 
       {!collapsed && (
-        <div style={bodyStyle}>
+        <div className="ca-body">
           {backendHealth === "offline" && (
-            <div style={offlineBannerStyle}>
+            <div className="ca-offline">
               <span>⚠ Backend offline (localhost:8000)</span>
-              <span style={spacerStyle} />
-              <button onClick={() => void refreshHealth()} style={retryBtnStyle}>
+              <span className="ca-spacer" />
+              <button onClick={() => void refreshHealth()} className="ca-retry">
                 Retry
               </button>
             </div>
           )}
 
           {showChecklist && (
-            <div style={checklistStyle}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Finish setup</div>
+            <div className="ca-checklist">
+              <div className="ca-card-title">Finish setup</div>
               <ChecklistItem
                 ok={backendHealth === "online"}
                 label="Backend running"
@@ -483,14 +483,14 @@ export function Overlay({ onClose }: Props) {
               />
               <ChecklistItem ok={nameOk} label="Your name set" hint={nameOk ? selfName : undefined} />
               {!nameOk && (
-                <div style={{ ...btnRowStyle, marginTop: 6 }}>
+                <div className="ca-row" style={{ marginTop: 6 }}>
                   <input
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     placeholder="Your LinkedIn display name"
-                    style={steerInputStyle}
+                    className="ca-input"
                   />
-                  <button onClick={saveName} disabled={!nameInput.trim()} style={primaryBtnStyle}>
+                  <button onClick={saveName} disabled={!nameInput.trim()} className="ca-btn ca-btn-primary">
                     {nameSaved ? "Saved ✓" : "Save"}
                   </button>
                 </div>
@@ -499,23 +499,23 @@ export function Overlay({ onClose }: Props) {
           )}
 
           {armedSnap && !anomalyDismissed && (
-            <div style={anomalyCardStyle}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠ Extraction anomaly detected</div>
-              <div style={{ fontSize: 11, marginBottom: 6, color: "#7a3e00" }}>
+            <div className="ca-anomaly">
+              <div className="ca-card-title">⚠ Extraction anomaly detected</div>
+              <div className="ca-anomaly-sub">
                 {(armedSnap.diagnostics?.anomalies ?? []).join(", ") || "see snapshot"}
               </div>
-              <div style={btnRowStyle}>
-                <button onClick={() => void exportSnapshot(armedSnap)} style={primaryBtnStyle}>
+              <div className="ca-row">
+                <button onClick={() => void exportSnapshot(armedSnap)} className="ca-btn ca-btn-primary">
                   {snapshotButtonLabel("Save snapshot")}
                 </button>
-                <button onClick={onDismissAnomaly} style={ghostBtnStyle}>
+                <button onClick={onDismissAnomaly} className="ca-btn ca-btn-ghost">
                   Dismiss
                 </button>
               </div>
             </div>
           )}
 
-          <div style={statusLineStyle}>
+          <div className="ca-status">
             {threadInfo ? (
               <>
                 <strong>{threadInfo.title || "(unknown thread)"}</strong>
@@ -527,12 +527,12 @@ export function Overlay({ onClose }: Props) {
                 )}
               </>
             ) : (
-              <span style={{ color: "#666" }}>Open a LinkedIn thread, then click Suggest.</span>
+              <span className="ca-muted">Open a LinkedIn thread, then click Suggest.</span>
             )}
           </div>
 
           {followupChip && (
-            <div style={followupChipStyle} onClick={copyFollowupForCalendar} title="Click to copy a one-line summary">
+            <div className="ca-followup" onClick={copyFollowupForCalendar} title="Click to copy a one-line summary">
               🔔 {followupChip.label} — click to copy for Calendar/Tasks
             </div>
           )}
@@ -542,7 +542,7 @@ export function Overlay({ onClose }: Props) {
             value={steer}
             onChange={(e) => setSteer(e.target.value)}
             placeholder="Steer it (optional): 'make it warmer', 'mention the demo'…"
-            style={steerInputStyle}
+            className="ca-input"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -550,13 +550,13 @@ export function Overlay({ onClose }: Props) {
               }
             }}
           />
-          <div style={chipRowStyle}>
+          <div className="ca-chips">
             {TONES.map((t) => (
               <button
                 key={t.label}
                 onClick={() => applyTone(t)}
                 disabled={isLoading}
-                style={chipStyle}
+                className="ca-chip"
                 title={t.steer}
               >
                 {t.label}
@@ -564,7 +564,7 @@ export function Overlay({ onClose }: Props) {
             ))}
           </div>
 
-          <div style={btnRowStyle}>
+          <div className="ca-row">
             <ActionButton
               label="Suggest"
               shortcut="Alt+S"
@@ -578,7 +578,7 @@ export function Overlay({ onClose }: Props) {
               loading={loadingMode === "follow_up"}
             />
           </div>
-          <div style={btnRowStyle}>
+          <div className="ca-row">
             <ActionButton
               label="Shorter"
               shortcut="Alt+H"
@@ -600,35 +600,35 @@ export function Overlay({ onClose }: Props) {
             value={preview}
             onChange={(e) => setPreview(e.target.value)}
             placeholder="Suggestion will appear here. You can edit before copying."
-            style={previewStyle}
+            className="ca-preview"
             rows={6}
           />
 
           {/* Feedback on the current suggestion */}
           {preview && status.kind !== "loading" && (
-            <div style={feedbackRowStyle}>
+            <div className="ca-feedback">
               {feedbackGiven ? (
-                <span style={{ color: "#15803d" }}>Thanks — noted for your next profile refresh.</span>
+                <span className="ca-ok">Thanks — noted for your next profile refresh.</span>
               ) : showFeedbackNote ? (
-                <div style={{ display: "flex", gap: 6, width: "100%" }}>
+                <div className="ca-feedback-note">
                   <input
                     value={feedbackNote}
                     onChange={(e) => setFeedbackNote(e.target.value)}
                     placeholder="What was off? (optional)"
-                    style={steerInputStyle}
+                    className="ca-input"
                     autoFocus
                   />
-                  <button onClick={submitThumbDown} style={primaryBtnStyle}>
+                  <button onClick={submitThumbDown} className="ca-btn ca-btn-primary">
                     Send
                   </button>
                 </div>
               ) : (
                 <>
-                  <span style={{ color: "#666" }}>Sound like you?</span>
-                  <button onClick={onThumbUp} style={thumbStyle} title="Yes — sounds like me">
+                  <span className="ca-muted">Sound like you?</span>
+                  <button onClick={onThumbUp} className="ca-thumb" title="Yes — sounds like me">
                     👍
                   </button>
-                  <button onClick={onThumbDown} style={thumbStyle} title="Not quite — tell it why">
+                  <button onClick={onThumbDown} className="ca-thumb" title="Not quite — tell it why">
                     👎
                   </button>
                 </>
@@ -636,29 +636,29 @@ export function Overlay({ onClose }: Props) {
             </div>
           )}
 
-          <div style={btnRowStyle}>
-            <button onClick={copyPreview} disabled={!preview} style={primaryBtnStyle} title="Copy (Alt+C)">
+          <div className="ca-row">
+            <button onClick={copyPreview} disabled={!preview} className="ca-btn ca-btn-primary" title="Copy (Alt+C)">
               {copied ? "Copied ✓" : "Copy"}
             </button>
-            <button onClick={regenerate} disabled={!preview || isLoading} style={ghostBtnStyle} title="Regenerate (Alt+R)">
+            <button onClick={regenerate} disabled={!preview || isLoading} className="ca-btn ca-btn-ghost" title="Regenerate (Alt+R)">
               ↻ Regenerate
             </button>
-            <button onClick={() => setPreview("")} disabled={!preview} style={ghostBtnStyle}>
+            <button onClick={() => setPreview("")} disabled={!preview} className="ca-btn ca-btn-ghost">
               Clear
             </button>
           </div>
 
-          {strategy && <div style={strategyStyle}>💡 {strategy.text}</div>}
+          {strategy && <div className="ca-strategy">💡 {strategy.text}</div>}
 
           {memoryProposal && !memorySaved && (
-            <div style={memoryCardStyle}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Save this about {memoryProposal.contact_name}?</div>
-              <div style={{ marginBottom: 6 }}>{memoryProposal.note}</div>
-              <div style={btnRowStyle}>
-                <button onClick={onSaveProposal} style={primaryBtnStyle}>
+            <div className="ca-memory">
+              <div className="ca-card-title">Save this about {memoryProposal.contact_name}?</div>
+              <div className="ca-memory-note">{memoryProposal.note}</div>
+              <div className="ca-row">
+                <button onClick={onSaveProposal} className="ca-btn ca-btn-primary">
                   Save
                 </button>
-                <button onClick={() => setMemoryProposal(null)} style={ghostBtnStyle}>
+                <button onClick={() => setMemoryProposal(null)} className="ca-btn ca-btn-ghost">
                   Dismiss
                 </button>
               </div>
@@ -668,48 +668,48 @@ export function Overlay({ onClose }: Props) {
           {threadInfo?.title && (
             <div>
               {showNoteInput ? (
-                <div style={memoryCardStyle}>
+                <div className="ca-memory">
                   <textarea
                     value={noteDraft}
                     onChange={(e) => setNoteDraft(e.target.value)}
                     placeholder={`Note about ${threadInfo.title}…`}
-                    style={{ ...previewStyle, minHeight: 40 }}
+                    className="ca-preview ca-preview-sm"
                     rows={2}
                   />
-                  <div style={btnRowStyle}>
-                    <button onClick={onSaveManual} disabled={!noteDraft.trim()} style={primaryBtnStyle}>
+                  <div className="ca-row">
+                    <button onClick={onSaveManual} disabled={!noteDraft.trim()} className="ca-btn ca-btn-primary">
                       Save note
                     </button>
-                    <button onClick={() => { setShowNoteInput(false); setNoteDraft(""); }} style={ghostBtnStyle}>
+                    <button onClick={() => { setShowNoteInput(false); setNoteDraft(""); }} className="ca-btn ca-btn-ghost">
                       Cancel
                     </button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setShowNoteInput(true)} style={ghostBtnStyle}>
+                <button onClick={() => setShowNoteInput(true)} className="ca-btn ca-btn-ghost ca-btn-block">
                   + Add note manually
                 </button>
               )}
             </div>
           )}
 
-          {status.kind === "error" && <div style={errorStyle}>{status.message}</div>}
+          {status.kind === "error" && <div className="ca-error">{status.message}</div>}
 
-          <div style={footerStyle}>
-            <span style={footerSummaryStyle}>
+          <div className="ca-footer">
+            <span className="ca-foot-summary">
               {diagnostics ? formatDiagnosticsSummary(diagnostics) : "no extraction yet"}
             </span>
-            <span style={spacerStyle} />
-            <span title={SHORTCUT_HELP} style={shortcutHintStyle}>⌨</span>
+            <span className="ca-spacer" />
+            <span title={SHORTCUT_HELP} className="ca-kbd">⌨</span>
             <button
               onClick={toggleDebugMode}
-              style={footerToggleStyle}
+              className="ca-foot-toggle"
               title={debugMode ? "Debug mode on" : "Debug mode off"}
             >
               {debugMode ? "debug ●" : "debug ○"}
             </button>
             {debugMode && (
-              <button onClick={() => setShowDiagPane((v) => !v)} style={footerToggleStyle} title="Toggle diagnostics detail">
+              <button onClick={() => setShowDiagPane((v) => !v)} className="ca-foot-toggle" title="Toggle diagnostics detail">
                 {showDiagPane ? "▾" : "▸"}
               </button>
             )}
@@ -717,10 +717,10 @@ export function Overlay({ onClose }: Props) {
 
           {debugMode && showDiagPane && (
             <>
-              <pre style={diagPaneStyle}>
+              <pre className="ca-diag">
                 {diagnostics ? JSON.stringify(diagnostics, null, 2) : "(no extraction recorded yet)"}
               </pre>
-              <button onClick={onManualCapture} style={ghostBtnStyle}>
+              <button onClick={onManualCapture} className="ca-btn ca-btn-ghost ca-btn-block">
                 {snapshotButtonLabel("Capture snapshot")}
               </button>
             </>
@@ -742,10 +742,10 @@ const SHORTCUT_HELP =
 
 function ChecklistItem({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "1px 0" }}>
-      <span style={{ color: ok ? "#15803d" : "#b45309" }}>{ok ? "✓" : "○"}</span>
+    <div className="ca-check">
+      <span className={`ca-check-ico ${ok ? "is-ok" : "is-todo"}`}>{ok ? "✓" : "○"}</span>
       <span>{label}</span>
-      {hint && <span style={{ color: "#888", fontSize: 11 }}>— {hint}</span>}
+      {hint && <span className="ca-check-hint">— {hint}</span>}
     </div>
   );
 }
@@ -769,15 +769,7 @@ function ActionButton({
       onClick={onClick}
       disabled={isDisabled}
       title={shortcut ? `${label} (${shortcut})` : label}
-      style={{
-        ...actionBtnStyle,
-        opacity: isDisabled ? 0.6 : 1,
-        cursor: isDisabled ? "not-allowed" : "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-      }}
+      className="ca-action"
     >
       {loading && <Spinner />}
       <span>{label}</span>
@@ -786,20 +778,7 @@ function ActionButton({
 }
 
 function Spinner() {
-  return (
-    <span
-      aria-label="loading"
-      style={{
-        display: "inline-block",
-        width: 10,
-        height: 10,
-        border: "2px solid #b6c2cf",
-        borderTopColor: "#0a66c2",
-        borderRadius: "50%",
-        animation: "commsasst-spin 0.7s linear infinite",
-      }}
-    />
-  );
+  return <span aria-label="loading" className="ca-spinner" />;
 }
 
 function renderFollowupChip(c: ContactInfo | null): { label: string } | null {
@@ -815,257 +794,3 @@ function renderFollowupChip(c: ContactInfo | null): { label: string } | null {
   if (diffH < 24) return { label: `Follow-up due today (${date})` };
   return { label: `Follow-up due ${date}` };
 }
-
-// --- styles ----------------------------------------------------------------
-
-const rootStyle: React.CSSProperties = {
-  position: "fixed",
-  width: 320,
-  background: "white",
-  border: "1px solid #d0d7de",
-  borderRadius: 8,
-  boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  fontSize: 13,
-  color: "#1d1d1f",
-  zIndex: 2147483647,
-};
-
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  padding: "6px 8px",
-  background: "#0a66c2",
-  color: "white",
-  cursor: "move",
-  borderTopLeftRadius: 8,
-  borderTopRightRadius: 8,
-  userSelect: "none",
-};
-
-const titleStyle: React.CSSProperties = { fontWeight: 600, fontSize: 12 };
-const spacerStyle: React.CSSProperties = { flex: 1 };
-
-const iconBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  color: "white",
-  fontSize: 16,
-  lineHeight: 1,
-  cursor: "pointer",
-  padding: "0 6px",
-};
-
-const bodyStyle: React.CSSProperties = { padding: 10, display: "flex", flexDirection: "column", gap: 8 };
-const statusLineStyle: React.CSSProperties = { fontSize: 12, color: "#333" };
-const btnRowStyle: React.CSSProperties = { display: "flex", gap: 6 };
-
-const actionBtnStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "5px 8px",
-  fontSize: 12,
-  border: "1px solid #d0d7de",
-  background: "#f6f8fa",
-  borderRadius: 4,
-  cursor: "pointer",
-};
-
-const previewStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: 8,
-  fontSize: 12,
-  fontFamily: "inherit",
-  border: "1px solid #d0d7de",
-  borderRadius: 4,
-  resize: "vertical",
-};
-
-const steerInputStyle: React.CSSProperties = {
-  flex: 1,
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "5px 8px",
-  fontSize: 12,
-  fontFamily: "inherit",
-  border: "1px solid #d0d7de",
-  borderRadius: 4,
-};
-
-const chipRowStyle: React.CSSProperties = { display: "flex", gap: 6, flexWrap: "wrap" };
-
-const chipStyle: React.CSSProperties = {
-  padding: "3px 10px",
-  fontSize: 11,
-  border: "1px solid #c7d2e0",
-  background: "#eef3f8",
-  color: "#0a66c2",
-  borderRadius: 12,
-  cursor: "pointer",
-};
-
-const primaryBtnStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "6px 10px",
-  fontSize: 12,
-  fontWeight: 600,
-  border: "1px solid #0a66c2",
-  background: "#0a66c2",
-  color: "white",
-  borderRadius: 4,
-  cursor: "pointer",
-};
-
-const ghostBtnStyle: React.CSSProperties = {
-  padding: "6px 10px",
-  fontSize: 12,
-  border: "1px solid #d0d7de",
-  background: "white",
-  borderRadius: 4,
-  cursor: "pointer",
-};
-
-const thumbStyle: React.CSSProperties = {
-  border: "1px solid #d0d7de",
-  background: "white",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  padding: "2px 8px",
-  lineHeight: 1.2,
-};
-
-const feedbackRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  fontSize: 11,
-};
-
-const strategyStyle: React.CSSProperties = {
-  background: "#fff8e1",
-  border: "1px solid #ffe082",
-  padding: 8,
-  borderRadius: 4,
-  fontSize: 12,
-};
-
-const memoryCardStyle: React.CSSProperties = {
-  background: "#eef7ee",
-  border: "1px solid #cfe5cf",
-  padding: 8,
-  borderRadius: 4,
-  fontSize: 12,
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-};
-
-const checklistStyle: React.CSSProperties = {
-  background: "#f0f6fc",
-  border: "1px solid #c7d2e0",
-  padding: 8,
-  borderRadius: 4,
-  fontSize: 12,
-};
-
-const followupChipStyle: React.CSSProperties = {
-  background: "#fff3e0",
-  border: "1px solid #ffb74d",
-  padding: "6px 8px",
-  borderRadius: 4,
-  fontSize: 11,
-  cursor: "pointer",
-  fontWeight: 500,
-};
-
-const errorStyle: React.CSSProperties = {
-  background: "#fdecea",
-  color: "#b00020",
-  padding: 6,
-  borderRadius: 4,
-  fontSize: 11,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-};
-
-const offlineBannerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  background: "#fdecea",
-  color: "#b00020",
-  border: "1px solid #f5c2c0",
-  padding: "6px 8px",
-  borderRadius: 4,
-  fontSize: 11,
-  fontWeight: 500,
-};
-
-const retryBtnStyle: React.CSSProperties = {
-  padding: "3px 10px",
-  fontSize: 11,
-  border: "1px solid #b00020",
-  background: "white",
-  color: "#b00020",
-  borderRadius: 3,
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const footerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  marginTop: 2,
-  paddingTop: 6,
-  borderTop: "1px solid #eef0f2",
-  fontSize: 10,
-  color: "#666",
-};
-
-const footerSummaryStyle: React.CSSProperties = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  fontSize: 10,
-  color: "#666",
-};
-
-const footerToggleStyle: React.CSSProperties = {
-  background: "transparent",
-  border: "1px solid #d0d7de",
-  borderRadius: 3,
-  fontSize: 10,
-  padding: "2px 6px",
-  cursor: "pointer",
-  color: "#666",
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-};
-
-const shortcutHintStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#666",
-  cursor: "help",
-  padding: "0 4px",
-};
-
-const diagPaneStyle: React.CSSProperties = {
-  background: "#0d1117",
-  color: "#e6edf3",
-  padding: 8,
-  borderRadius: 4,
-  fontSize: 10,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  maxHeight: 240,
-  overflow: "auto",
-  whiteSpace: "pre",
-  margin: 0,
-};
-
-const anomalyCardStyle: React.CSSProperties = {
-  background: "#fff4e5",
-  border: "1px solid #ffb74d",
-  padding: 8,
-  borderRadius: 4,
-  fontSize: 12,
-  color: "#7a3e00",
-};

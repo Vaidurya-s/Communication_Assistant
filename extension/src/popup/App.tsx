@@ -23,36 +23,50 @@ export function App() {
 
   return (
     <div>
-      <h2 style={{ margin: "0 0 8px", fontSize: 14 }}>Comms Assistant — Settings</h2>
+      <div className="pop-head">
+        <span className="pop-brand" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+            <path d="M4 6.5C4 5.12 5.12 4 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H9l-4 4v-4H6.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <circle cx="9" cy="10" r="1" fill="currentColor" />
+            <circle cx="12.5" cy="10" r="1" fill="currentColor" />
+            <circle cx="16" cy="10" r="1" fill="currentColor" />
+          </svg>
+        </span>
+        <div>
+          <div className="pop-kicker">Settings</div>
+          <h1 className="pop-title">Comms Assistant</h1>
+        </div>
+      </div>
 
-      <p style={{ margin: "0 0 8px", color: "#555", fontSize: 12 }}>
+      <p className="pop-desc">
         The assistant lives as a floating panel inside LinkedIn messaging. This popup is
-        only for settings.
+        just for settings.
       </p>
 
-      <label style={{ display: "block", marginBottom: 4, color: "#555" }}>
-        Your LinkedIn display name (for self-detection):
+      <label className="pop-label">
+        Your LinkedIn display name <span className="pop-hint">(for self-detection)</span>
       </label>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div className="pop-row">
         <input
           type="text"
           value={selfName}
           onChange={(e) => setSelfName(e.target.value)}
           placeholder="e.g. Vaidurya Shah"
-          style={{ flex: 1, padding: "4px 6px", fontSize: 12 }}
+          className="pop-input"
         />
-        <button onClick={onSave} style={{ padding: "4px 8px", fontSize: 12 }}>
-          {saved ? "Saved" : "Save"}
+        <button onClick={onSave} className="pop-btn">
+          {saved ? "Saved ✓" : "Save"}
         </button>
       </div>
 
-      <div style={{ marginTop: 12, padding: 8, background: "#f5f5f7", borderRadius: 4, fontSize: 12 }}>
+      <div className={`pop-status${onLinkedIn ? " ok" : ""}`}>
         {onLinkedIn ? (
-          <span style={{ color: "#15803d" }}>
-            ✓ LinkedIn messaging tab detected — the overlay is mounted on the page.
-          </span>
+          <>
+            <span className="pop-dot" />
+            LinkedIn messaging detected — the overlay is live on the page.
+          </>
         ) : (
-          <span style={{ color: "#555" }}>
+          <span>
             Open <code>linkedin.com/messaging/</code> to see the overlay.
           </span>
         )}
