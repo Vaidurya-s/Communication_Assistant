@@ -144,12 +144,22 @@ const LOADERS = {
   activity: loadActivity,
   settings: loadConfig,
 };
+const ROUTES = ["overview", "contacts", "followups", "voice", "activity", "settings"];
 function show(view) {
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $$(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
   if (LOADERS[view]) LOADERS[view]();
+  try { if (location.hash.slice(1) !== view) history.replaceState(null, "", "#" + view); } catch (e) { /* ignore */ }
 }
 $$(".nav-item").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+
+// Hash routing — bookmarkable/shareable section links (and lets headless render
+// any section for docs). e.g. #voice, #settings, or ?contact=Name#contacts.
+function initRoute() {
+  const v = (location.hash || "").replace(/^#/, "");
+  show(ROUTES.includes(v) ? v : "overview");
+}
+window.addEventListener("hashchange", initRoute);
 
 // ---------------------------------------------------------------- Overview
 let lastConfig = null;
@@ -182,6 +192,7 @@ async function loadOverview() {
     card("Feedback given", stats.feedback, "👍 / 👎", "voice"),
   ].join("");
   $$("#statCards .card[data-goto]").forEach((c) => c.addEventListener("click", () => show(c.dataset.goto)));
+  animateCounts();
 
   // Onboarding checklist.
   const providerOk = cfg.provider === "gemini-cli" || !!cfg.openai.apiKeyMasked;
@@ -213,6 +224,7 @@ $("#refreshOverview").addEventListener("click", loadOverview);
 let contacts = [];
 let selectedName = null;
 let activeFilter = "all";
+let deepSelect = null; // ?contact=Name → auto-open that contact's detail once
 
 async function loadContacts() {
   try {
@@ -220,6 +232,11 @@ async function loadContacts() {
     contacts = data.contacts || [];
     $("#navContacts").textContent = contacts.length || "";
     renderList();
+    if (deepSelect) {
+      const target = contacts.find((c) => c.name === deepSelect || cleanName(c.name) === deepSelect);
+      deepSelect = null;
+      if (target) showDetail(target.name);
+    }
   } catch (err) {
     $("#contactList").innerHTML = `<li class="muted">Failed to load: ${esc(err.message)}</li>`;
   }
@@ -639,7 +656,54 @@ async function refreshStatus() {
   }
 }
 
+// ---------------------------------------------------------------- Theme + chrome
+const reduceMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function animateCounts() {
+  if (reduceMotion()) return;
+  $$("#statCards .card-value").forEach((el) => {
+    const target = parseInt(el.textContent, 10);
+    if (!Number.isFinite(target) || target === 0) return;
+    const dur = 650, start = performance.now();
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased);
+      if (p < 1) requestAnimationFrame(tick); else el.textContent = target;
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("ca-theme", t); } catch (e) { /* ignore */ }
+}
+function toggleTheme() {
+  setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+}
+$("#themeToggle").addEventListener("click", toggleTheme);
+const themeToggle2 = $("#themeToggle2");
+if (themeToggle2) themeToggle2.addEventListener("click", toggleTheme);
+
+// Collapsible sidebar.
+try { if (localStorage.getItem("ca-collapsed") === "1") $("#app").classList.add("collapsed"); } catch (e) { /* ignore */ }
+$("#collapseBtn").addEventListener("click", () => {
+  const c = $("#app").classList.toggle("collapsed");
+  try { localStorage.setItem("ca-collapsed", c ? "1" : "0"); } catch (e) { /* ignore */ }
+});
+
+// Activity type filter — show/hide the relevant panels.
+$$("#activityFilter .chip-btn").forEach((b) =>
+  b.addEventListener("click", () => {
+    $$("#activityFilter .chip-btn").forEach((x) => x.classList.toggle("active", x === b));
+    const f = b.dataset.act;
+    $$("[data-act-panel]").forEach((p) => { p.style.display = f === "all" || p.dataset.actPanel === f ? "" : "none"; });
+  }),
+);
+
 // ---------------------------------------------------------------- Init
+try { deepSelect = new URLSearchParams(location.search).get("contact"); } catch (e) { /* ignore */ }
 refreshStatus();
-loadOverview();
-loadContacts(); // populate nav count
+loadContacts(); // populate nav count (+ deep-select if ?contact= given)
+initRoute(); // render the section named in the URL hash (defaults to overview)

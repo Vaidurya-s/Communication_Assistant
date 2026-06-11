@@ -1,27 +1,74 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Comms Assistant — Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
+    <script>try { var t = localStorage.getItem("ca-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   </head>
   <body>
-    <div class="app">
+    <!-- Atmosphere -->
+    <div class="bg-mesh" aria-hidden="true"></div>
+    <div class="bg-grain" aria-hidden="true"></div>
+
+    <div class="app" id="app">
       <!-- Sidebar -->
       <aside class="sidebar">
-        <div class="brand"><span class="logo">💬</span><span>Comms Assistant</span></div>
+        <div class="side-top">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 6.5C4 5.12 5.12 4 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H9l-4 4v-4H6.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="12.5" cy="10" r="1" fill="currentColor"/><circle cx="16" cy="10" r="1" fill="currentColor"/></svg>
+            </span>
+            <span class="brand-text">Comms<span class="brand-dim">Assistant</span></span>
+          </div>
+          <button class="collapse-btn" id="collapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M14.5 7l-5 5 5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
         <nav class="nav">
-          <button class="nav-item active" data-view="overview"><span class="nav-ico">🏠</span> Overview</button>
-          <button class="nav-item" data-view="contacts"><span class="nav-ico">👥</span> Contacts <span class="nav-count" id="navContacts"></span></button>
-          <button class="nav-item" data-view="followups"><span class="nav-ico">🔔</span> Follow-ups <span class="nav-count warn" id="navFollowups"></span></button>
-          <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span> Voice profile</button>
-          <button class="nav-item" data-view="activity"><span class="nav-ico">📈</span> Activity</button>
-          <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span> Settings</button>
+          <button class="nav-item active" data-view="overview">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span class="nav-label">Overview</span>
+          </button>
+          <button class="nav-item" data-view="contacts">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M3.8 19c.4-3 2.6-4.6 5.2-4.6S13.8 16 14.2 19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15.5 5.5a3 3 0 0 1 0 5.4M16.5 14.6c2 .4 3.4 1.9 3.7 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="nav-label">Contacts</span>
+            <span class="nav-count" id="navContacts"></span>
+          </button>
+          <button class="nav-item" data-view="followups">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><path d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 5 2 6.5 2 6.5H4.5s2-1.5 2-6.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="nav-label">Follow-ups</span>
+            <span class="nav-count warn" id="navFollowups"></span>
+          </button>
+          <button class="nav-item" data-view="voice">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><rect x="9" y="3.5" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="nav-label">Voice profile</span>
+          </button>
+          <button class="nav-item" data-view="activity">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><path d="M3.5 13h3l2-6 3.5 11 2.5-7 1.5 2h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="nav-label">Activity</span>
+          </button>
+          <button class="nav-item" data-view="settings">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="nav-label">Settings</span>
+          </button>
         </nav>
+
         <div class="sidebar-foot">
-          <div class="status-dot" id="statusDot"><span class="dot"></span><span id="statusText">checking…</span></div>
-          <div class="provider-badge" id="providerBadge" title="Active LLM provider">…</div>
+          <button class="theme-toggle" id="themeToggle" title="Toggle light / dark" aria-label="Toggle theme">
+            <svg class="ico-moon" viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            <svg class="ico-sun" viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.1 5.1l1.6 1.6M17.3 17.3l1.6 1.6M18.9 5.1l-1.6 1.6M6.7 17.3l-1.6 1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="tt-label">Theme</span>
+          </button>
+          <div class="status-line">
+            <div class="status-dot" id="statusDot"><span class="dot"></span><span id="statusText">checking…</span></div>
+            <div class="provider-badge" id="providerBadge" title="Active LLM provider">…</div>
+          </div>
         </div>
       </aside>
 
@@ -29,12 +76,13 @@
       <main class="main">
         <!-- OVERVIEW -->
         <section id="view-overview" class="view active">
-          <header class="view-head"><h1>Overview</h1><button class="btn ghost small" id="refreshOverview">↻ Refresh</button></header>
-
+          <header class="view-head">
+            <div><span class="kicker">Console / 01</span><h1>Overview</h1></div>
+            <button class="btn ghost small" id="refreshOverview"><span class="btn-ico">↻</span> Refresh</button>
+          </header>
           <div class="cards" id="statCards"></div>
-
           <div class="panel">
-            <h2>Getting started</h2>
+            <div class="panel-head"><h2>Getting started</h2><span class="panel-kick">Setup</span></div>
             <p class="muted">A quick checklist to get the assistant working end to end.</p>
             <ul class="checklist" id="checklist"></ul>
           </div>
@@ -42,7 +90,7 @@
 
         <!-- CONTACTS -->
         <section id="view-contacts" class="view">
-          <header class="view-head"><h1>Contacts</h1></header>
+          <header class="view-head"><div><span class="kicker">Console / 02</span><h1>Contacts</h1></div></header>
           <div class="split">
             <div class="list-pane">
               <input id="search" type="search" placeholder="Search name, role, company…" autocomplete="off" />
@@ -74,27 +122,41 @@
 
         <!-- FOLLOW-UPS -->
         <section id="view-followups" class="view">
-          <header class="view-head"><h1>Follow-ups</h1><button class="btn ghost small" id="refreshFollowups">↻ Refresh</button></header>
-          <p class="muted">Conversations the assistant flagged for a check-back. Copy a line straight into your calendar or tasks.</p>
+          <header class="view-head">
+            <div><span class="kicker">Console / 03</span><h1>Follow-ups</h1></div>
+            <button class="btn ghost small" id="refreshFollowups"><span class="btn-ico">↻</span> Refresh</button>
+          </header>
+          <p class="muted">Conversations the assistant flagged for a check-back. Send one straight to your calendar.</p>
           <div id="followupsContent"></div>
         </section>
 
         <!-- VOICE -->
         <section id="view-voice" class="view">
-          <header class="view-head"><h1>Voice profile</h1><button class="btn ghost small" id="refreshVoice">↻ Refresh</button></header>
+          <header class="view-head">
+            <div><span class="kicker">Console / 04</span><h1>Voice profile</h1></div>
+            <button class="btn ghost small" id="refreshVoice"><span class="btn-ico">↻</span> Refresh</button>
+          </header>
           <div id="voiceContent"></div>
         </section>
 
         <!-- ACTIVITY -->
         <section id="view-activity" class="view">
-          <header class="view-head"><h1>Activity</h1><button class="btn ghost small" id="refreshActivity">↻ Refresh</button></header>
-          <div class="panel">
-            <h2>Strategy reads</h2>
+          <header class="view-head">
+            <div><span class="kicker">Console / 05</span><h1>Activity</h1></div>
+            <button class="btn ghost small" id="refreshActivity"><span class="btn-ico">↻</span> Refresh</button>
+          </header>
+          <div class="filter-row" id="activityFilter">
+            <button class="chip-btn active" data-act="all">All</button>
+            <button class="chip-btn" data-act="strategy">Strategy reads</button>
+            <button class="chip-btn" data-act="snapshots">Snapshots</button>
+          </div>
+          <div class="panel" data-act-panel="strategy">
+            <div class="panel-head"><h2>Strategy reads</h2><span class="panel-kick">Insight</span></div>
             <p class="muted">Strategic insights the assistant generated while drafting replies.</p>
             <div id="strategyContent"></div>
           </div>
-          <div class="panel">
-            <h2>DOM snapshots</h2>
+          <div class="panel" data-act-panel="snapshots">
+            <div class="panel-head"><h2>DOM snapshots</h2><span class="panel-kick">Forensics</span></div>
             <p class="muted">Forensic captures saved when extraction looked off — used to keep LinkedIn selectors working.</p>
             <div id="snapshotContent"></div>
           </div>
@@ -102,20 +164,18 @@
 
         <!-- SETTINGS -->
         <section id="view-settings" class="view">
-          <header class="view-head"><h1>Settings</h1></header>
+          <header class="view-head"><div><span class="kicker">Console / 06</span><h1>Settings</h1></div></header>
           <div class="panel settings-card">
-            <h2>LLM provider</h2>
+            <div class="panel-head"><h2>LLM provider</h2><span class="panel-kick">Engine</span></div>
             <p class="muted">
               Pick a provider, paste a key, choose a model, then Apply. Changes take effect
               immediately — no restart. Keys are stored locally in <code>backend/.env</code> and
               never shown again after saving.
             </p>
-
             <label>Provider
               <select id="presetSelect"></select>
             </label>
             <p class="muted small" id="presetNote"></p>
-
             <div id="httpFields">
               <label>Base URL
                 <input id="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
@@ -129,7 +189,6 @@
               </label>
               <div class="current-key muted small" id="currentKey"></div>
             </div>
-
             <details class="advanced">
               <summary>Advanced</summary>
               <label>Temperature <span class="muted small">(blank = provider default)</span>
@@ -139,7 +198,6 @@
                 <input id="timeoutMs" type="number" step="1000" min="1000" placeholder="180000" />
               </label>
             </details>
-
             <div class="btn-row">
               <button id="testBtn" class="btn ghost">Test connection</button>
               <button id="applyBtn" class="btn primary">Apply</button>
@@ -148,7 +206,15 @@
           </div>
 
           <div class="panel">
-            <h2>Backend</h2>
+            <div class="panel-head"><h2>Preferences</h2><span class="panel-kick">Local</span></div>
+            <div class="pref-row">
+              <div><div class="pref-title">Appearance</div><div class="muted small">Switch between dark and light themes.</div></div>
+              <button class="btn ghost small" id="themeToggle2">Toggle theme</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Backend</h2><span class="panel-kick">Runtime</span></div>
             <dl class="kv" id="backendInfo"></dl>
           </div>
         </section>
