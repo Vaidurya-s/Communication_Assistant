@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSelfNameSetting, setSelfNameSetting } from "../shared/storage";
+import { isSupportedMessagingUrl } from "../platforms/urls";
 
 export function App() {
   const [selfName, setSelfName] = useState<string>("");
@@ -19,7 +20,7 @@ export function App() {
     setTimeout(() => setSaved(false), 1200);
   };
 
-  const onLinkedIn = activeTabUrl.includes("linkedin.com/messaging");
+  const onSupported = isSupportedMessagingUrl(activeTabUrl);
 
   return (
     <div>
@@ -39,12 +40,12 @@ export function App() {
       </div>
 
       <p className="pop-desc">
-        The assistant lives as a floating panel inside LinkedIn messaging. This popup is
-        just for settings.
+        The assistant lives as a floating panel inside your messages on supported sites. This
+        popup is just for settings.
       </p>
 
       <label className="pop-label">
-        Your LinkedIn display name <span className="pop-hint">(for self-detection)</span>
+        Your display name <span className="pop-hint">(for self-detection)</span>
       </label>
       <div className="pop-row">
         <input
@@ -59,15 +60,15 @@ export function App() {
         </button>
       </div>
 
-      <div className={`pop-status${onLinkedIn ? " ok" : ""}`}>
-        {onLinkedIn ? (
+      <div className={`pop-status${onSupported ? " ok" : ""}`}>
+        {onSupported ? (
           <>
             <span className="pop-dot" />
-            LinkedIn messaging detected — the overlay is live on the page.
+            Messaging detected — the overlay is live on the page.
           </>
         ) : (
           <span>
-            Open <code>linkedin.com/messaging/</code> to see the overlay.
+            Open LinkedIn or Gmail messaging to see the overlay.
           </span>
         )}
       </div>

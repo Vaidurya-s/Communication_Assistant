@@ -19,6 +19,7 @@ import {
   setCachedProfile,
   type ContactProfile,
 } from "../shared/profile";
+import { isProfileUrl } from "../platforms/urls";
 
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -28,15 +29,6 @@ interface InFlight {
 }
 
 const inFlight = new Map<string, InFlight>();
-
-function isLinkedInProfileUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return u.hostname.includes("linkedin.com") && u.pathname.startsWith("/in/");
-  } catch {
-    return false;
-  }
-}
 
 export async function getProfileForUrl(profileUrl: string): Promise<ContactProfile | null> {
   const url = canonicalProfileUrl(profileUrl);
@@ -49,7 +41,7 @@ export async function getProfileForUrl(profileUrl: string): Promise<ContactProfi
  * the actual extraction happens asynchronously via runtime.onMessage.
  */
 export async function requestProfileFetch(profileUrl: string): Promise<void> {
-  if (!isLinkedInProfileUrl(profileUrl)) return;
+  if (!isProfileUrl(profileUrl)) return;
   const url = canonicalProfileUrl(profileUrl);
 
   // Cache hit → nothing to do.

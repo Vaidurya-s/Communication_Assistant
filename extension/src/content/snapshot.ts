@@ -17,7 +17,7 @@
  */
 
 import { getLastExtraction } from "./index";
-import { getMessageListSubtreeHtml } from "./linkedin";
+import { getCurrentExtractor } from "./currentPlatform";
 import type { ExtractionDiagnostics } from "./diagnostics";
 import type { ConversationContext } from "../shared/types";
 
@@ -55,7 +55,7 @@ export function captureSnapshot(): Snapshot {
     pageTitle: document.title,
     parsedContext: last?.context ?? null,
     diagnostics: last?.diagnostics ?? null,
-    htmlSubtree: getMessageListSubtreeHtml(),
+    htmlSubtree: getCurrentExtractor()?.getCaptureHtml() ?? "",
     viewport: { width: window.innerWidth, height: window.innerHeight },
     userAgent: navigator.userAgent,
   };

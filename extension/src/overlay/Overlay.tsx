@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AnalyzeRequest, BackendResponse, Mode, RuntimeMessage } from "../shared/messages";
 import { useDraggable, type Position } from "./useDraggable";
 import {
+  describeAnomaly,
   formatDiagnosticsSummary,
+  hasLayoutAnomaly,
   type ExtractionDiagnostics,
 } from "../content/diagnostics";
 import { getDebugMode, setDebugMode } from "../shared/debug";
@@ -410,6 +412,12 @@ export function Overlay({ onClose }: Props) {
   const isLoading = status.kind === "loading";
   const followupChip = renderFollowupChip(contactInfo);
   const armedSnap = getArmedSnapshot();
+  const anomalyList = armedSnap?.diagnostics?.anomalies ?? [];
+  const layoutBroken = hasLayoutAnomaly(anomalyList);
+  const anomalyPlatform = armedSnap?.parsedContext?.platform;
+  const anomalyPlatformLabel =
+    anomalyPlatform === "gmail" ? "Gmail" : anomalyPlatform === "linkedin" ? "LinkedIn" : "";
+  const anomalyReasons = anomalyList.map(describeAnomaly).join("; ");
 
   const exportSnapshot = async (snap: Snapshot) => {
     const result = await exportSnapshotApi(snap);
@@ -487,7 +495,7 @@ export function Overlay({ onClose }: Props) {
                   <input
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
-                    placeholder="Your LinkedIn display name"
+                    placeholder="Your display name"
                     className="ca-input"
                   />
                   <button onClick={saveName} disabled={!nameInput.trim()} className="ca-btn ca-btn-primary">
@@ -500,10 +508,17 @@ export function Overlay({ onClose }: Props) {
 
           {armedSnap && !anomalyDismissed && (
             <div className="ca-anomaly">
-              <div className="ca-card-title">⚠ Extraction anomaly detected</div>
-              <div className="ca-anomaly-sub">
-                {(armedSnap.diagnostics?.anomalies ?? []).join(", ") || "see snapshot"}
+              <div className="ca-card-title">
+                {layoutBroken
+                  ? `⚠ Couldn't read this ${anomalyPlatformLabel ? anomalyPlatformLabel + " " : ""}page`
+                  : "⚠ Heads up"}
               </div>
+              <div className="ca-anomaly-sub">
+                {layoutBroken
+                  ? "Its layout may have changed. Save a snapshot so it can be fixed."
+                  : anomalyReasons || "see snapshot"}
+              </div>
+              {layoutBroken && anomalyReasons && <div className="ca-anomaly-sub">{anomalyReasons}.</div>}
               <div className="ca-row">
                 <button onClick={() => void exportSnapshot(armedSnap)} className="ca-btn ca-btn-primary">
                   {snapshotButtonLabel("Save snapshot")}
@@ -527,7 +542,7 @@ export function Overlay({ onClose }: Props) {
                 )}
               </>
             ) : (
-              <span className="ca-muted">Open a LinkedIn thread, then click Suggest.</span>
+              <span className="ca-muted">Open a conversation, then click Suggest.</span>
             )}
           </div>
 

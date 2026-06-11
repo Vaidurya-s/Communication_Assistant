@@ -6,6 +6,7 @@ import {
 } from "../shared/messages";
 import type { ConversationContext } from "../shared/types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
+import { isSupportedMessagingUrl } from "../platforms/urls";
 import {
   getProfileForUrl,
   handleProfileExtracted,
@@ -47,8 +48,8 @@ async function pingContentScript(tabId: number): Promise<boolean> {
 
 async function ensureContentScriptInjected(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id) throw new Error("active tab has no id");
-  if (!tab.url || !tab.url.includes("linkedin.com")) {
-    throw new Error("active tab is not LinkedIn");
+  if (!tab.url || !isSupportedMessagingUrl(tab.url)) {
+    throw new Error("active tab is not a supported messaging page");
   }
 
   if (await pingContentScript(tab.id)) return;
@@ -66,14 +67,14 @@ async function ensureContentScriptInjected(tab: chrome.tabs.Tab): Promise<void> 
   } catch (err) {
     throw new Error(
       `content script not loaded and auto-inject failed: ${(err as Error).message}. ` +
-        "Reload the LinkedIn tab (Ctrl+R) and try again.",
+        "Reload the tab (Ctrl+R) and try again.",
     );
   }
 
   await new Promise((r) => setTimeout(r, 150));
   if (!(await pingContentScript(tab.id))) {
     throw new Error(
-      "content script injected but did not respond. Reload the LinkedIn tab (Ctrl+R) and try again.",
+      "content script injected but did not respond. Reload the tab (Ctrl+R) and try again.",
     );
   }
 }

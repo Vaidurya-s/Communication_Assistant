@@ -1,19 +1,9 @@
 import type { RuntimeMessage } from "../shared/messages";
 import type { ExtractionResult } from "../shared/types";
-import { isLinkedInMessagingRoute } from "./detector";
-import {
-  backfillMessages,
-  extractLinkedInContext,
-  installMessageObserver,
-} from "./linkedin";
+import { messagingExtractor, profileExtractor } from "../platforms/registry";
+import { getCurrentExtractor, setCurrentExtractor } from "./currentPlatform";
 import { mountOverlay, unmountOverlay } from "../overlay/mount";
-import { armAnomalySnapshot } from "./snapshot";
-import {
-  extractLinkedInProfile,
-  getThreadContactProfileUrl,
-  isOnProfilePage,
-  waitForProfileReady,
-} from "./profile";
+import { armAnomalySnapshot, clearArmedSnapshot } from "./snapshot";
 
 let observer: MutationObserver | null = null;
 let installRetryHandle: number | null = null;
@@ -25,12 +15,18 @@ export function getLastExtraction(): ExtractionResult | null {
 }
 
 async function extractAndRemember(backfill: boolean): Promise<ExtractionResult> {
+  const ext = getCurrentExtractor();
+  if (!ext) throw new Error("no platform extractor for this page");
   let backfillMs = -1;
-  if (backfill) backfillMs = await backfillMessages();
-  const result = await extractLinkedInContext();
+  if (backfill) backfillMs = await ext.backfillMessages();
+  const result = await ext.extractContext();
   if (backfillMs >= 0) result.diagnostics.backfillMs = backfillMs;
   lastExtraction = result;
+  // Arm a snapshot when something looks off; clear any prior warning when the
+  // extraction comes back clean (the observer re-extracts as the page settles,
+  // so a transient miss self-heals instead of lingering).
   if (result.diagnostics.anomalies.length > 0) armAnomalySnapshot();
+  else clearArmedSnapshot();
   return result;
 }
 
@@ -56,9 +52,9 @@ async function sendExtracted(trigger: "user" | "observer"): Promise<void> {
 
 function tryInstallObserver(): void {
   if (observer) return;
-  observer = installMessageObserver(() => {
+  observer = getCurrentExtractor()?.installMessageObserver(() => {
     void sendExtracted("observer");
-  });
+  }) ?? null;
   if (!observer) {
     if (installRetryHandle !== null) window.clearTimeout(installRetryHandle);
     installRetryHandle = window.setTimeout(tryInstallObserver, 1000);
@@ -73,7 +69,7 @@ function tryInstallObserver(): void {
 function maybeKickProfileFetch(): void {
   // Defer one tick — the thread header sometimes hydrates a beat after route change.
   window.setTimeout(() => {
-    const url = getThreadContactProfileUrl();
+    const url = getCurrentExtractor()?.getContactProfileUrl();
     if (!url) return;
     const msg: RuntimeMessage = { type: "PROFILE_FETCH_REQUEST", profileUrl: url };
     chrome.runtime.sendMessage(msg).catch(() => {});
@@ -89,10 +85,13 @@ function bootForCurrentRoute(): void {
     window.clearTimeout(installRetryHandle);
     installRetryHandle = null;
   }
-  if (!isLinkedInMessagingRoute(window.location)) {
+  const ext = messagingExtractor(window.location);
+  if (!ext) {
+    setCurrentExtractor(null);
     unmountOverlay();
     return;
   }
+  setCurrentExtractor(ext);
   tryInstallObserver();
   mountOverlay();
   maybeKickProfileFetch();
@@ -133,10 +132,11 @@ chrome.runtime.onMessage.addListener(
  * receiving end of background-initiated hidden-tab fetches.
  */
 async function bootForProfilePage(): Promise<void> {
-  if (!isOnProfilePage()) return;
-  await waitForProfileReady(8000);
+  const ext = profileExtractor(window.location);
+  if (!ext) return;
+  await ext.waitForProfileReady(8000);
   try {
-    const profile = extractLinkedInProfile();
+    const profile = ext.extractProfile();
     if (!profile.name) return;
     const msg: RuntimeMessage = { type: "PROFILE_EXTRACTED", payload: profile };
     chrome.runtime.sendMessage(msg).catch(() => {});
@@ -169,3 +169,6 @@ history.replaceState = function (...args: Parameters<typeof history.replaceState
 };
 window.addEventListener("popstate", onUrlChange);
 window.addEventListener("__commsasst_locationchange", onUrlChange);
+// Gmail navigates via the URL hash (#inbox/<id>), which fires `hashchange`
+// rather than popstate/pushState — re-evaluate the route on it too.
+window.addEventListener("hashchange", onUrlChange);

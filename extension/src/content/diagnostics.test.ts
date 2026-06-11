@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   createEmptyDiagnostics,
+  describeAnomaly,
   formatDiagnosticsSummary,
+  hasLayoutAnomaly,
+  type Anomaly,
   type ExtractionDiagnostics,
 } from "./diagnostics";
 
@@ -37,5 +40,32 @@ describe("diagnostics", () => {
     expect(healthy).not.toContain("⚠");
     expect(healthy).not.toContain("draft");
     expect(healthy).not.toContain("backfill");
+  });
+});
+
+const ALL_ANOMALIES: Anomaly[] = [
+  "zero-messages-on-thread-route",
+  "conversation-title-missing",
+  "message-list-container-missing",
+  "self-name-configured-but-unmatched",
+  "no-message-events-matched",
+  "gmail-zero-messages",
+];
+
+describe("anomaly classification", () => {
+  it("flags selector/DOM breaks as layout anomalies", () => {
+    expect(hasLayoutAnomaly(["gmail-zero-messages"])).toBe(true);
+    expect(hasLayoutAnomaly(["no-message-events-matched", "conversation-title-missing"])).toBe(true);
+  });
+
+  it("does not flag the benign self-name miss or an empty list", () => {
+    expect(hasLayoutAnomaly(["self-name-configured-but-unmatched"])).toBe(false);
+    expect(hasLayoutAnomaly([])).toBe(false);
+  });
+
+  it("describes every anomaly with a non-empty phrase", () => {
+    for (const a of ALL_ANOMALIES) {
+      expect(describeAnomaly(a).length).toBeGreaterThan(0);
+    }
   });
 });
