@@ -52,3 +52,46 @@ export function readFeedback(): string {
     return "";
   }
 }
+
+export interface ParsedFeedback {
+  rating: "up" | "down";
+  date: string;
+  contact?: string;
+  note?: string;
+  suggestion?: string;
+}
+
+/**
+ * Parse feedback.md back into structured entries for the console's Voice
+ * section. Mirrors the block shape written by appendFeedback():
+ *   ## 👍 liked — <iso>   /   ## 👎 off — <iso>
+ *   - contact: ...
+ *   - what was off: ...
+ *   - suggestion: ...
+ * Newest first.
+ */
+export function readFeedbackEntries(): ParsedFeedback[] {
+  const raw = readFeedback();
+  if (!raw) return [];
+  const entries: ParsedFeedback[] = [];
+  const blocks = raw.split(/\n(?=## )/);
+  for (const block of blocks) {
+    const header = block.match(/^##\s*(👍|👎)[^\n]*?—\s*(.+)$/m);
+    if (!header) continue;
+    const rating = header[1] === "👍" ? "up" : "down";
+    const date = header[2].trim();
+    const field = (label: RegExp): string | undefined => {
+      const m = block.match(label);
+      return m ? m[1].trim() : undefined;
+    };
+    entries.push({
+      rating,
+      date,
+      contact: field(/^-\s*contact:\s*(.+)$/m),
+      note: field(/^-\s*what was off:\s*(.+)$/m),
+      suggestion: field(/^-\s*suggestion:\s*(.+)$/m),
+    });
+  }
+  entries.reverse();
+  return entries;
+}

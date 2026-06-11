@@ -68,3 +68,8 @@ export function loadVoiceProfile(): string {
   const body = readFileSync(path, "utf-8").trim();
   return body || "(voice profile is empty)";
 }
+
+/** Absolute path to the compiled voice profile (for stat/mtime in the console). */
+export function voiceProfilePath(): string {
+  return join(VOICE_DIR, REQUIRED_VOICE_FILE);
+}

@@ -1,12 +1,18 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
 import { resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
 import { runLLM, getProviderName, resetProvider } from "./llm/index.js";
 import { createOpenAiCompatProvider } from "./llm/openai-compat.js";
 import { getConfig, reloadConfig, type ProviderName } from "./config.js";
 import { writeEnv } from "./envFile.js";
 import { PRESETS, findPreset } from "./presets.js";
-import { loadVoiceProfile, validateVoiceProfile, VoiceProfileMissingError } from "./voiceProfile.js";
+import {
+  loadVoiceProfile,
+  validateVoiceProfile,
+  voiceProfilePath,
+  VoiceProfileMissingError,
+} from "./voiceProfile.js";
 import { buildPrompt, type Mode } from "./prompt.js";
 import {
   addNote,
@@ -16,6 +22,8 @@ import {
   getAllContacts,
   getContact,
   getNotesFor,
+  getRecentStrategies,
+  getStats,
   recordStrategy,
   setFollowupAt,
   updateNote,
@@ -26,7 +34,7 @@ import type { IncomingContactProfile } from "./prompt.js";
 import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
-import { appendFeedback } from "./feedback.js";
+import { appendFeedback, readFeedbackEntries } from "./feedback.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -272,6 +280,56 @@ app.get("/snapshots", (_req: Request, res: Response) => {
 app.get("/memory/contacts", (_req: Request, res: Response) => {
   try {
     res.json({ contacts: getAllContacts() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.get("/memory/strategies", (req: Request, res: Response) => {
+  const limit = Number(req.query.limit);
+  try {
+    res.json({ strategies: getRecentStrategies(Number.isFinite(limit) ? limit : 50) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Overview / stats ------------------------------------------------------
+
+app.get("/stats", (_req: Request, res: Response) => {
+  try {
+    const stats = getStats(new Date().toISOString());
+    const voiceChars = getVoice().length;
+    res.json({
+      ...stats,
+      snapshots: listSnapshots().length,
+      feedback: readFeedbackEntries().length,
+      provider: getProviderName(),
+      voice_profile_chars: voiceChars,
+      voice_profile_ok: voiceChars > 40,
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Voice profile (read-only view) ----------------------------------------
+
+app.get("/voice", (_req: Request, res: Response) => {
+  try {
+    const content = loadVoiceProfile();
+    const path = voiceProfilePath();
+    let updatedAt: string | null = null;
+    if (existsSync(path)) {
+      try { updatedAt = statSync(path).mtime.toISOString(); } catch { /* ignore */ }
+    }
+    res.json({
+      content,
+      chars: content.length,
+      ok: content.length > 40,
+      updated_at: updatedAt,
+      feedback: readFeedbackEntries(),
+    });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

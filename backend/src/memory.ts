@@ -287,6 +287,56 @@ export function recordStrategy(contactName: string, text: string, followupAt: st
     .run(contactName, text.trim(), followupAt);
 }
 
+export interface StrategyEntry {
+  id: number;
+  contact_name: string;
+  read_at: string;
+  text: string;
+  suggested_followup_at: string | null;
+}
+
+/** Recent strategic reads, newest first. Powers the Activity timeline. */
+export function getRecentStrategies(limit = 50): StrategyEntry[] {
+  const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 500) : 50;
+  return getDb()
+    .prepare(
+      `SELECT id, contact_name, read_at, text, suggested_followup_at
+       FROM strategy_log ORDER BY read_at DESC, id DESC LIMIT ?`,
+    )
+    .all(n) as StrategyEntry[];
+}
+
+export interface MemoryStats {
+  contacts: number;
+  notes: number;
+  pending_notes: number;
+  enriched_profiles: number;
+  followups_due: number;
+  followups_total: number;
+  strategies: number;
+}
+
+/** Aggregate counts for the Overview cards. `nowIso` defines "due". */
+export function getStats(nowIso: string): MemoryStats {
+  const db = getDb();
+  const one = (sql: string, ...args: unknown[]): number => {
+    const row = db.prepare(sql).get(...args) as { n: number } | undefined;
+    return row ? Number(row.n) || 0 : 0;
+  };
+  return {
+    contacts: one(`SELECT COUNT(*) AS n FROM contacts`),
+    notes: one(`SELECT COUNT(*) AS n FROM notes`),
+    pending_notes: one(`SELECT COUNT(*) AS n FROM notes WHERE confirmed_by_user = 0`),
+    enriched_profiles: one(`SELECT COUNT(*) AS n FROM contacts WHERE profile_fetched_at IS NOT NULL`),
+    followups_due: one(
+      `SELECT COUNT(*) AS n FROM contacts WHERE suggested_followup_at IS NOT NULL AND suggested_followup_at <= ?`,
+      nowIso,
+    ),
+    followups_total: one(`SELECT COUNT(*) AS n FROM contacts WHERE suggested_followup_at IS NOT NULL`),
+    strategies: one(`SELECT COUNT(*) AS n FROM strategy_log`),
+  };
+}
+
 /**
  * Persist a fetched LinkedIn profile against a contact. The contact row is
  * created if missing. List-ish fields (experience/education/skills) are

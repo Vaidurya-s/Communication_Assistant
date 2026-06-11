@@ -7,71 +7,153 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">💬</span>
-        <span>Comms Assistant <span class="muted">Console</span></span>
-      </div>
-      <nav class="tabs">
-        <button class="tab active" data-view="contacts">Contacts</button>
-        <button class="tab" data-view="settings">Settings</button>
-      </nav>
-      <div class="provider-badge" id="providerBadge" title="Active LLM provider">…</div>
-    </header>
-
-    <main>
-      <!-- Contacts view -->
-      <section id="view-contacts" class="view active">
-        <div class="split">
-          <aside class="list-pane">
-            <input id="search" type="search" placeholder="Search contacts…" autocomplete="off" />
-            <div class="list-meta" id="listMeta"></div>
-            <ul id="contactList" class="contact-list"></ul>
-          </aside>
-          <article class="detail-pane" id="detailPane">
-            <div class="empty" id="detailEmpty">Select a contact to see their profile and notes.</div>
-            <div id="detail" hidden></div>
-          </article>
+    <div class="app">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="brand"><span class="logo">💬</span><span>Comms Assistant</span></div>
+        <nav class="nav">
+          <button class="nav-item active" data-view="overview"><span class="nav-ico">🏠</span> Overview</button>
+          <button class="nav-item" data-view="contacts"><span class="nav-ico">👥</span> Contacts <span class="nav-count" id="navContacts"></span></button>
+          <button class="nav-item" data-view="followups"><span class="nav-ico">🔔</span> Follow-ups <span class="nav-count warn" id="navFollowups"></span></button>
+          <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span> Voice profile</button>
+          <button class="nav-item" data-view="activity"><span class="nav-ico">📈</span> Activity</button>
+          <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span> Settings</button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="status-dot" id="statusDot"><span class="dot"></span><span id="statusText">checking…</span></div>
+          <div class="provider-badge" id="providerBadge" title="Active LLM provider">…</div>
         </div>
-      </section>
+      </aside>
 
-      <!-- Settings view -->
-      <section id="view-settings" class="view">
-        <div class="settings-card">
-          <h2>LLM provider</h2>
-          <p class="muted">
-            Pick a provider, paste a key, choose a model, then Apply. Changes take effect
-            immediately — no restart. Keys are stored locally in <code>backend/.env</code> and
-            never shown again after saving.
-          </p>
+      <!-- Main -->
+      <main class="main">
+        <!-- OVERVIEW -->
+        <section id="view-overview" class="view active">
+          <header class="view-head"><h1>Overview</h1><button class="btn ghost small" id="refreshOverview">↻ Refresh</button></header>
 
-          <label>Provider
-            <select id="presetSelect"></select>
-          </label>
-          <p class="muted small" id="presetNote"></p>
+          <div class="cards" id="statCards"></div>
 
-          <div id="httpFields">
-            <label>Base URL
-              <input id="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
+          <div class="panel">
+            <h2>Getting started</h2>
+            <p class="muted">A quick checklist to get the assistant working end to end.</p>
+            <ul class="checklist" id="checklist"></ul>
+          </div>
+        </section>
+
+        <!-- CONTACTS -->
+        <section id="view-contacts" class="view">
+          <header class="view-head"><h1>Contacts</h1></header>
+          <div class="split">
+            <div class="list-pane">
+              <input id="search" type="search" placeholder="Search name, role, company…" autocomplete="off" />
+              <div class="filter-row" id="filterRow">
+                <button class="chip-btn active" data-filter="all">All</button>
+                <button class="chip-btn" data-filter="notes">Has notes</button>
+                <button class="chip-btn" data-filter="pending">Pending</button>
+                <button class="chip-btn" data-filter="enriched">Enriched</button>
+                <button class="chip-btn" data-filter="followup">Follow-up due</button>
+              </div>
+              <div class="sort-row">
+                <label class="muted small">Sort
+                  <select id="sortSelect">
+                    <option value="recent">Most recent</option>
+                    <option value="name">Name (A–Z)</option>
+                    <option value="notes">Most notes</option>
+                  </select>
+                </label>
+                <span class="list-meta" id="listMeta"></span>
+              </div>
+              <ul id="contactList" class="contact-list"></ul>
+            </div>
+            <article class="detail-pane" id="detailPane">
+              <div class="empty" id="detailEmpty">Select a contact to see their profile and notes.</div>
+              <div id="detail" hidden></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- FOLLOW-UPS -->
+        <section id="view-followups" class="view">
+          <header class="view-head"><h1>Follow-ups</h1><button class="btn ghost small" id="refreshFollowups">↻ Refresh</button></header>
+          <p class="muted">Conversations the assistant flagged for a check-back. Copy a line straight into your calendar or tasks.</p>
+          <div id="followupsContent"></div>
+        </section>
+
+        <!-- VOICE -->
+        <section id="view-voice" class="view">
+          <header class="view-head"><h1>Voice profile</h1><button class="btn ghost small" id="refreshVoice">↻ Refresh</button></header>
+          <div id="voiceContent"></div>
+        </section>
+
+        <!-- ACTIVITY -->
+        <section id="view-activity" class="view">
+          <header class="view-head"><h1>Activity</h1><button class="btn ghost small" id="refreshActivity">↻ Refresh</button></header>
+          <div class="panel">
+            <h2>Strategy reads</h2>
+            <p class="muted">Strategic insights the assistant generated while drafting replies.</p>
+            <div id="strategyContent"></div>
+          </div>
+          <div class="panel">
+            <h2>DOM snapshots</h2>
+            <p class="muted">Forensic captures saved when extraction looked off — used to keep LinkedIn selectors working.</p>
+            <div id="snapshotContent"></div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="view-settings" class="view">
+          <header class="view-head"><h1>Settings</h1></header>
+          <div class="panel settings-card">
+            <h2>LLM provider</h2>
+            <p class="muted">
+              Pick a provider, paste a key, choose a model, then Apply. Changes take effect
+              immediately — no restart. Keys are stored locally in <code>backend/.env</code> and
+              never shown again after saving.
+            </p>
+
+            <label>Provider
+              <select id="presetSelect"></select>
             </label>
-            <label>Model
-              <input id="model" type="text" list="modelList" placeholder="model name" />
-              <datalist id="modelList"></datalist>
-            </label>
-            <label>API key
-              <input id="apiKey" type="password" placeholder="leave blank to keep current key" autocomplete="off" />
-            </label>
-            <div class="current-key muted small" id="currentKey"></div>
+            <p class="muted small" id="presetNote"></p>
+
+            <div id="httpFields">
+              <label>Base URL
+                <input id="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
+              </label>
+              <label>Model
+                <input id="model" type="text" list="modelList" placeholder="model name" />
+                <datalist id="modelList"></datalist>
+              </label>
+              <label>API key
+                <input id="apiKey" type="password" placeholder="leave blank to keep current key" autocomplete="off" />
+              </label>
+              <div class="current-key muted small" id="currentKey"></div>
+            </div>
+
+            <details class="advanced">
+              <summary>Advanced</summary>
+              <label>Temperature <span class="muted small">(blank = provider default)</span>
+                <input id="temperature" type="number" step="0.1" min="0" max="2" placeholder="" />
+              </label>
+              <label>Request timeout (ms)
+                <input id="timeoutMs" type="number" step="1000" min="1000" placeholder="180000" />
+              </label>
+            </details>
+
+            <div class="btn-row">
+              <button id="testBtn" class="btn ghost">Test connection</button>
+              <button id="applyBtn" class="btn primary">Apply</button>
+            </div>
+            <div class="status" id="settingsStatus"></div>
           </div>
 
-          <div class="btn-row">
-            <button id="testBtn" class="btn ghost">Test connection</button>
-            <button id="applyBtn" class="btn primary">Apply</button>
+          <div class="panel">
+            <h2>Backend</h2>
+            <dl class="kv" id="backendInfo"></dl>
           </div>
-          <div class="status" id="settingsStatus"></div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
 
     <div id="toast" class="toast" hidden></div>
     <script src="app.js"></script>
