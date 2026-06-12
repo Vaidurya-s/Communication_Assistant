@@ -10,6 +10,7 @@
     "build:extension": "npm --prefix extension run build",
     "package:extension": "node scripts/package-extension.mjs",
     "init-voice": "npm --prefix backend run init-voice",
+    "voice:eval": "npm --prefix backend run voice:eval",
     "snapshots:list": "npm --prefix backend run snapshots:list",
     "test": "npm --prefix backend test && npm --prefix extension test"
   },

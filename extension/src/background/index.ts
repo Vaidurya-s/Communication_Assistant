@@ -175,9 +175,33 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
   }
 }
 
+/**
+ * Manual "open the panel" from the popup: ensure the content script is present
+ * on the active tab (it may predate the extension, or the tab was restored from
+ * a session) and tell it to (re-)mount the overlay.
+ */
+async function handleOpenOverlay(): Promise<RuntimeMessage> {
+  const tab = await getActiveTab();
+  if (!tab || tab.id === undefined) return { type: "ERROR", message: "no active tab" };
+  try {
+    await ensureContentScriptInjected(tab); // throws on unsupported pages
+    const resp = (await chrome.tabs.sendMessage(tab.id, { type: "SHOW_OVERLAY" })) as
+      | RuntimeMessage
+      | undefined;
+    return resp ?? { type: "OVERLAY_OPENED" };
+  } catch (err) {
+    return { type: "ERROR", message: (err as Error).message };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse) => {
   if (msg.type === "ANALYZE_REQUEST") {
     handleAnalyze(msg).then(sendResponse);
+    return true;
+  }
+
+  if (msg.type === "OPEN_OVERLAY") {
+    handleOpenOverlay().then(sendResponse);
     return true;
   }
 

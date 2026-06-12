@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "init-voice": "tsx src/initVoice.ts",
+    "voice:eval": "tsx src/eval/voiceEval.ts",
     "snapshots:list": "tsx scripts/list-snapshots.ts",
     "test": "vitest run",
     "test:watch": "vitest"

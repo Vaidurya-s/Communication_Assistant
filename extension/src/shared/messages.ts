@@ -46,6 +46,12 @@ export type RuntimeMessage =
   | { type: "PROFILE_FETCH_REQUEST"; profileUrl: string }
   /** Content script (on a profile page) → background: extracted payload. */
   | { type: "PROFILE_EXTRACTED"; payload: ContactProfile }
+  /** Popup → background: ensure the content script is injected and mount the overlay. */
+  | { type: "OPEN_OVERLAY" }
+  /** Background → content script: (re-)mount the overlay on demand. */
+  | { type: "SHOW_OVERLAY" }
+  /** Content script → caller: the overlay is now mounted. */
+  | { type: "OVERLAY_OPENED" }
   | { type: "ERROR"; message: string };
 
 export const BACKEND_URL = "http://localhost:8000/analyze";

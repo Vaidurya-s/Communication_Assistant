@@ -104,6 +104,20 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
+    if (msg?.type === "SHOW_OVERLAY") {
+      // Re-evaluate the route and mount. Handles a panel closed with ×, a tab
+      // that loaded before the extension, or a restored session where the
+      // initial boot missed.
+      bootForCurrentRoute();
+      const onRoute = !!messagingExtractor(window.location);
+      sendResponse(
+        onRoute
+          ? { type: "OVERLAY_OPENED" }
+          : { type: "ERROR", message: "not a supported messaging page" },
+      );
+      return false;
+    }
+
     if (msg?.type !== "EXTRACT_REQUEST") return;
 
     (async () => {
