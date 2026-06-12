@@ -50,6 +50,10 @@ function parseFloat0(raw: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function parseBool(raw: string | undefined): boolean {
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export interface Config {
   provider: ProviderName;
   timeoutMs: number;
@@ -59,6 +63,14 @@ export interface Config {
     model: string;
     temperature: number | undefined;
   };
+  /**
+   * When true, every data route requires a valid bearer token (hosted mode).
+   * When false (default), unauthenticated requests act as the 'local' tenant,
+   * so a single-user local install needs no token. Set COMMS_REQUIRE_AUTH=1.
+   */
+  requireAuth: boolean;
+  /** CORS allow-list: "*" (default, local) or a comma-separated origin list. */
+  corsOrigins: string;
 }
 
 let cached: Config | null = null;
@@ -74,6 +86,8 @@ export function getConfig(): Config {
       model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
       temperature: parseFloat0(process.env.OPENAI_TEMPERATURE),
     },
+    requireAuth: parseBool(process.env.COMMS_REQUIRE_AUTH),
+    corsOrigins: process.env.COMMS_CORS_ORIGINS ?? "*",
   };
   return cached;
 }

@@ -75,6 +75,17 @@ export function getDb(): Database.Database {
       text TEXT NOT NULL,
       suggested_followup_at TEXT
     );
+
+    -- H2 auth. One row per tenant that has a bearer token. We store only the
+    -- SHA-256 hash of the token, never the token itself. The implicit 'local'
+    -- tenant has no row here and needs no token in local mode (the default).
+    CREATE TABLE IF NOT EXISTS tenants (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      label TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen_at TEXT
+    );
   `);
 
   // Forward-compatible column additions (no-op if column already exists).

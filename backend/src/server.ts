@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import { resolve } from "node:path";
 import { existsSync, statSync } from "node:fs";
@@ -36,6 +36,7 @@ import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
 import { appendFeedback, readFeedbackEntries } from "./feedback.js";
 import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
+import { resolveTenantByToken } from "./auth.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -47,29 +48,28 @@ const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
 
 const app = express();
 
-app.use(cors({ origin: "*" }));
+function corsOriginOption(raw: string): string | string[] {
+  return raw === "*" ? "*" : raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+app.use(cors({ origin: corsOriginOption(getConfig().corsOrigins) }));
 app.use(express.json({ limit: "2mb" }));
 
-// Tenant resolver. Every request is scoped to a tenant so one account's data
-// can never leak into another's. The X-Comms-Tenant header is the seam; absent
-// → the implicit single-user "local" tenant, so the dashboard and extension
-// (which send no header) are byte-for-byte unchanged. This is the ONE place the
-// header is read — H2 replaces it with authenticated identity.
+// Each request's tenant is attached by the auth guard installed below (after
+// the public routes). RequestWithTenant + tenant() read it; tenant() falls back
+// to the local tenant for the public handlers that run before the guard.
 interface RequestWithTenant extends Request {
   tenantId: string;
 }
-app.use((req: Request, _res: Response, next) => {
-  (req as RequestWithTenant).tenantId = tenantOf(req);
-  next();
-});
 function tenant(req: Request): string {
   return (req as RequestWithTenant).tenantId ?? DEFAULT_TENANT;
 }
 
-// Serve the management console (contact browser + LLM settings). Vanilla
-// HTML/JS, no build step. API routes all use distinct prefixes (/memory,
-// /config, /analyze, /health) so static serving of / and /app.js can't shadow
-// them.
+// PUBLIC surface — registered BEFORE the auth guard so it always loads:
+// the management console (contact browser + LLM settings; vanilla HTML/JS, no
+// build step) and /health. A hosted user can thus open the dashboard to paste
+// their token, and health checks need no credentials. API routes use distinct
+// prefixes (/memory, /config, /analyze) so static serving can't shadow them.
 app.use(express.static(resolve(process.cwd(), "public")));
 
 // Per-tenant voice cache. Each tenant's compiled profile is loaded once and
@@ -91,7 +91,37 @@ app.get("/health", (req: Request, res: Response) => {
     voiceProfileChars: voiceChars,
     voiceProfileOk: voiceChars > 40,
     provider: getProviderName(),
+    requireAuth: getConfig().requireAuth,
   });
+});
+
+// --- Auth guard ------------------------------------------------------------
+//
+// Everything below requires a resolved tenant. A request authenticates with
+// `Authorization: Bearer <token>` → that tenant. In local mode (the default,
+// requireAuth=false) an unauthenticated request acts as the 'local' tenant,
+// optionally narrowed by the X-Comms-Tenant dev header; in hosted mode
+// (COMMS_REQUIRE_AUTH=1) it is rejected with 401. A presented-but-unknown token
+// is always rejected, even in local mode.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const header = req.header("authorization") || "";
+  const bearer = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (bearer) {
+    const tid = resolveTenantByToken(bearer);
+    if (!tid) {
+      res.status(401).json({ error: "invalid or revoked token" });
+      return;
+    }
+    (req as RequestWithTenant).tenantId = tid;
+    next();
+    return;
+  }
+  if (getConfig().requireAuth) {
+    res.status(401).json({ error: "authentication required" });
+    return;
+  }
+  (req as RequestWithTenant).tenantId = tenantOf(req);
+  next();
 });
 
 app.post("/analyze", async (req: Request, res: Response) => {
