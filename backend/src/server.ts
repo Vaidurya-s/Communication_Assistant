@@ -646,26 +646,34 @@ app.post("/config/test", async (req: Request, res: Response) => {
 });
 
 const PORT = Number(process.env.PORT) || 8000;
+// Bind host: loopback by default (local install), 0.0.0.0 for a hosted
+// deployment. See the loopback rationale at the listen() call below.
+const HOST = process.env.COMMS_BIND_HOST || "127.0.0.1";
 
-// Hard startup validation. If the runtime voice profile is missing or
-// empty, we refuse to boot — silent degradation to "no voice profile
-// found" was producing bad replies without anyone noticing.
-try {
-  validateVoiceProfile();
-} catch (err) {
-  if (err instanceof VoiceProfileMissingError) {
-    console.error("\n" + err.message + "\n");
-    process.exit(1);
+// Hard startup validation (local mode only). If the local tenant's voice
+// profile is missing or empty we refuse to boot — silent degradation to "no
+// voice profile found" was producing bad replies without anyone noticing. In
+// hosted mode (requireAuth) there is no single local tenant — each tenant
+// brings its own voice — so a missing local profile is not a boot blocker.
+if (!getConfig().requireAuth) {
+  try {
+    validateVoiceProfile();
+  } catch (err) {
+    if (err instanceof VoiceProfileMissingError) {
+      console.error("\n" + err.message + "\n");
+      process.exit(1);
+    }
+    throw err;
   }
-  throw err;
 }
 
-// Bind to loopback only. The console exposes contact data and mutating routes
-// (delete, config-write); binding to 127.0.0.1 keeps them off the network so
-// only this machine can reach them.
-app.listen(PORT, "127.0.0.1", () => {
+// Bind to loopback by default: the console exposes contact data and mutating
+// routes (delete, config-write), so on a local install we keep them off the
+// network. A hosted deployment sets COMMS_BIND_HOST=0.0.0.0 and relies on
+// bearer-token auth (COMMS_REQUIRE_AUTH=1) + TLS at the edge instead.
+app.listen(PORT, HOST, () => {
   ensureWorkspace(DEFAULT_TENANT);
   const voiceChars = getVoice(DEFAULT_TENANT).length;
-  console.log(`backend on http://127.0.0.1:${PORT} — voice profile loaded (${voiceChars} chars) — provider=${getProviderName()}`);
-  console.log(`console: http://127.0.0.1:${PORT}/`);
+  console.log(`backend on http://${HOST}:${PORT} — voice profile loaded (${voiceChars} chars) — provider=${getProviderName()}`);
+  console.log(`console: http://${HOST}:${PORT}/`);
 });

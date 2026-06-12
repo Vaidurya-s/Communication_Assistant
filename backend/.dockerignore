@@ -1,0 +1,16 @@
+# Keep the build context lean and free of local state / secrets.
+node_modules
+dist
+
+# Local data + secrets must never be baked into the image.
+data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*
+
+# Noise
+npm-debug.log*
+*.log
+.DS_Store

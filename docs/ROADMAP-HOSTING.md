@@ -1,10 +1,23 @@
 # Roadmap: hosting Comms Assistant online (multi-tenant + multi-platform)
 
-> **Status: design only.** Nothing in this document is built yet. It turns the
-> known seams in the current single-user/local codebase into a sequenced,
-> executable plan. Today the tool is deliberately local: one Node/Express
-> backend on `127.0.0.1:8000`, one SQLite file, one canonical voice profile,
-> a LinkedIn-only extension, and no authentication.
+> **Status: H1–H5 implemented** on the `feat/h1-tenancy` branch; H4 (platform
+> abstraction + Gmail) landed earlier on `master`. The tool still runs fully
+> local by default — every hosted capability is behind a flag or a token, so
+> the single-user `127.0.0.1:8000` experience is unchanged unless you opt in.
+> Continuous hardening (the back half of H5) remains ongoing.
+>
+> | Phase | What | Status |
+> |---|---|---|
+> | H1 | Tenancy data model — every row/query scoped by `tenant_id` | ✅ |
+> | H1b | Composite `(tenant_id, name)` PK + matching notes FK | ✅ |
+> | — | Per-tenant voice profile, feedback, gemini workspace | ✅ |
+> | H2 | Bearer-token auth + enforced-mode guard (`COMMS_REQUIRE_AUTH`) | ✅ |
+> | H3 | Per-tenant LLM keys (encrypted) + configurable client URL/token | ✅ |
+> | H4 | Platform-extractor abstraction (Gmail) | ✅ (earlier) |
+> | H5 | Per-tenant export/erasure + rate limiting | ✅ (core) |
+>
+> Provisioning is via the `tenant` CLI (`npm run tenant:create` / `tenant:llm`);
+> secrets are encrypted at rest with AES-256-GCM keyed by `COMMS_SECRET_KEY`.
 
 The goal is to offer Comms Assistant as a hosted web service — each customer
 gets isolated data and secrets — and to extend it beyond LinkedIn (Gmail first).
