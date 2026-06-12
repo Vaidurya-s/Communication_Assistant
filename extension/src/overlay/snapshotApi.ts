@@ -1,6 +1,5 @@
 import type { Snapshot } from "../content/snapshot";
-
-const BACKEND_BASE = "http://localhost:8000";
+import { backendFetch } from "../shared/backend";
 
 export type SnapshotExportResult =
   | { kind: "saved"; filename: string; bytes: number }
@@ -22,7 +21,7 @@ export async function exportSnapshot(snap: Snapshot): Promise<SnapshotExportResu
   const json = JSON.stringify(snap, null, 2);
 
   try {
-    const res = await fetch(`${BACKEND_BASE}/snapshots`, {
+    const res = await backendFetch(`/snapshots`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: json,

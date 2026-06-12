@@ -86,6 +86,20 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       last_seen_at TEXT
     );
+
+    -- H3 per-tenant LLM config. The API key is stored ENCRYPTED (AES-256-GCM,
+    -- keyed by COMMS_SECRET_KEY) in api_key_enc — never plaintext. A tenant with
+    -- no row here falls back to the process-global provider (the local tenant
+    -- always uses the global .env config).
+    CREATE TABLE IF NOT EXISTS tenant_secrets (
+      tenant_id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      base_url TEXT,
+      model TEXT,
+      temperature REAL,
+      api_key_enc TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Forward-compatible column additions (no-op if column already exists).

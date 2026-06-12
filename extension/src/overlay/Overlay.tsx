@@ -16,11 +16,11 @@ import {
   type Snapshot,
 } from "../content/snapshot";
 import { exportSnapshot as exportSnapshotApi, type SnapshotExportResult } from "./snapshotApi";
+import { backendFetch } from "../shared/backend";
 
 const POSITION_KEY = "overlayPosition";
 const COLLAPSED_KEY = "overlayCollapsed";
 const DEFAULT_POSITION: Position = { x: 24, y: 96 };
-const BACKEND_BASE = "http://localhost:8000";
 
 function sendBackground(msg: RuntimeMessage): Promise<RuntimeMessage> {
   return new Promise((resolve) => {
@@ -42,7 +42,7 @@ interface Health {
 
 async function fetchHealth(): Promise<Health | null> {
   try {
-    const res = await fetch(`${BACKEND_BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    const res = await backendFetch(`/health`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return null;
     const j = await res.json();
     return {
@@ -58,7 +58,7 @@ async function fetchHealth(): Promise<Health | null> {
 async function fetchContact(name: string): Promise<ContactInfo | null> {
   if (!name) return null;
   try {
-    const res = await fetch(`${BACKEND_BASE}/memory/contact/${encodeURIComponent(name)}`);
+    const res = await backendFetch(`/memory/contact/${encodeURIComponent(name)}`);
     if (!res.ok) return null;
     const j = await res.json();
     if (!j.contact) return null;
@@ -74,7 +74,7 @@ async function fetchContact(name: string): Promise<ContactInfo | null> {
 
 async function saveAutoNote(contact_name: string, note: string): Promise<boolean> {
   try {
-    const res = await fetch(`${BACKEND_BASE}/memory/notes`, {
+    const res = await backendFetch(`/memory/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contact_name, note }),
@@ -87,7 +87,7 @@ async function saveAutoNote(contact_name: string, note: string): Promise<boolean
 
 async function saveManualNote(contact_name: string, note: string): Promise<boolean> {
   try {
-    const res = await fetch(`${BACKEND_BASE}/memory/notes/manual`, {
+    const res = await backendFetch(`/memory/notes/manual`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contact_name, note }),
@@ -105,7 +105,7 @@ async function postFeedback(body: {
   suggestion?: string;
 }): Promise<boolean> {
   try {
-    const res = await fetch(`${BACKEND_BASE}/feedback`, {
+    const res = await backendFetch(`/feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -464,7 +464,7 @@ export function Overlay({ onClose }: Props) {
         <div className="ca-body">
           {backendHealth === "offline" && (
             <div className="ca-offline">
-              <span>⚠ Backend offline (localhost:8000)</span>
+              <span>⚠ Backend offline</span>
               <span className="ca-spacer" />
               <button onClick={() => void refreshHealth()} className="ca-retry">
                 Retry

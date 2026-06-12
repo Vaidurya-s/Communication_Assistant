@@ -12,6 +12,7 @@
     "snapshots:list": "tsx scripts/list-snapshots.ts",
     "tenant:create": "tsx scripts/tenant.ts create",
     "tenant:list": "tsx scripts/tenant.ts list",
+    "tenant:llm": "tsx scripts/tenant.ts llm",
     "test": "vitest run",
     "test:watch": "vitest"
   },

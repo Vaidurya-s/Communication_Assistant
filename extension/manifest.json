@@ -33,5 +33,6 @@
     "https://www.linkedin.com/*",
     "https://mail.google.com/*",
     "http://localhost:8000/*"
-  ]
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"]
 }

@@ -1,5 +1,4 @@
 import {
-  BACKEND_URL,
   type AnalyzeRequest,
   type BackendResponse,
   type RuntimeMessage,
@@ -7,6 +6,7 @@ import {
 import type { ConversationContext } from "../shared/types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
 import { isSupportedMessagingUrl } from "../platforms/urls";
+import { backendFetch } from "../shared/backend";
 import {
   getProfileForUrl,
   handleProfileExtracted,
@@ -109,7 +109,7 @@ async function postToBackend(
   steer: string | undefined,
 ): Promise<BackendResponse> {
   const body = { ...ctx, mode, seed_text: seedText ?? "", steer: steer ?? "" };
-  const res = await fetch(BACKEND_URL, {
+  const res = await backendFetch("/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

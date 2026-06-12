@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import { resolve } from "node:path";
 import { existsSync, statSync } from "node:fs";
-import { runLLM, getProviderName, resetProvider } from "./llm/index.js";
+import { runLLM, getProviderName, getProviderNameFor, resetProvider, resetProviderFor } from "./llm/index.js";
 import { createOpenAiCompatProvider } from "./llm/openai-compat.js";
 import { getConfig, reloadConfig, type ProviderName } from "./config.js";
 import { writeEnv } from "./envFile.js";
@@ -37,6 +37,8 @@ import { listSnapshots, saveSnapshot } from "./snapshots.js";
 import { appendFeedback, readFeedbackEntries } from "./feedback.js";
 import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
+import { exportTenant, purgeTenant } from "./tenantData.js";
+import { checkRate } from "./rateLimit.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -125,6 +127,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.post("/analyze", async (req: Request, res: Response) => {
+  const t = tenant(req);
+  const rl = checkRate(t, getConfig().rateLimitPerMin);
+  if (!rl.ok) {
+    res.setHeader("Retry-After", String(rl.retryAfterSec));
+    res.status(429).json({ error: `rate limit exceeded — retry in ${rl.retryAfterSec}s` });
+    return;
+  }
+
   const body = req.body ?? {};
   const ctx = body;
   const messageCount = Array.isArray(ctx?.messages) ? ctx.messages.length : 0;
@@ -153,8 +163,6 @@ app.post("/analyze", async (req: Request, res: Response) => {
     res.status(400).json({ error: "no messages and no draft — nothing to suggest from" });
     return;
   }
-
-  const t = tenant(req);
 
   // Read memory for this contact and inject into prompt.
   let existingNoteBodies: string[] = [];
@@ -240,7 +248,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
       requested_mode: mode,
       resolved_mode: resolvedMode,
       llm_ms: reply.durationMs,
-      provider: getProviderName(),
+      provider: getProviderNameFor(t),
       had_existing_notes: existingNoteBodies.length,
       insight_status: insightResult.status,
     },
@@ -387,6 +395,40 @@ app.get("/voice", (req: Request, res: Response) => {
       updated_at: updatedAt,
       feedback: readFeedbackEntries(tenant(req)),
     });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Data lifecycle (H5): portability + erasure --------------------------
+
+/** Full export of the caller's tenant data (GDPR-style portability). */
+app.get("/export", (req: Request, res: Response) => {
+  try {
+    res.json(exportTenant(tenant(req), new Date().toISOString()));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Erase ALL of the caller's tenant data. Destructive and irreversible, so the
+ * body must echo the tenant id: { "confirm": "<tenantId>" }. Also evicts the
+ * tenant's cached voice + provider so nothing stale survives in memory.
+ */
+app.post("/data/purge", (req: Request, res: Response) => {
+  const t = tenant(req);
+  const confirm = (req.body?.confirm ?? "").toString();
+  if (confirm !== t) {
+    res.status(400).json({ error: `to confirm erasure, send { "confirm": "${t}" }` });
+    return;
+  }
+  try {
+    const purged = purgeTenant(t);
+    voiceCache.delete(t);
+    resetProviderFor(t);
+    console.log(`[data] purged tenant '${t}':`, purged);
+    res.json({ ok: true, purged });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

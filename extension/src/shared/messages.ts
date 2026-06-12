@@ -53,5 +53,3 @@ export type RuntimeMessage =
   /** Content script → caller: the overlay is now mounted. */
   | { type: "OVERLAY_OPENED" }
   | { type: "ERROR"; message: string };
-
-export const BACKEND_URL = "http://localhost:8000/analyze";

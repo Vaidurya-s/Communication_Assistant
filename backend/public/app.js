@@ -10,8 +10,11 @@ function esc(s) {
   );
 }
 
-async function api(path, opts) {
-  const res = await fetch(path, opts);
+function getToken() { return (localStorage.getItem("commsToken") || "").trim(); }
+async function api(path, opts = {}) {
+  const token = getToken();
+  const headers = Object.assign({}, opts.headers || {}, token ? { Authorization: "Bearer " + token } : {});
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
   let json = null;
   try { json = await res.json(); } catch { /* no body */ }
   if (!res.ok) throw new Error((json && json.error) || `HTTP ${res.status}`);
@@ -701,6 +704,43 @@ $$("#activityFilter .chip-btn").forEach((b) =>
     $$("[data-act-panel]").forEach((p) => { p.style.display = f === "all" || p.dataset.actPanel === f ? "" : "none"; });
   }),
 );
+
+// ---------------------------------------------------------------- Access token
+function setTokenStatus(msg, kind) {
+  const el = $("#tokenStatus");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `status ${kind || ""}`;
+}
+function showTokenState() {
+  const tok = getToken();
+  if (tok) {
+    const last4 = tok.slice(-4);
+    setTokenStatus(`token set ····${last4}`, "ok");
+  } else {
+    setTokenStatus("No token stored — local mode.", "");
+  }
+}
+function reloadAll() {
+  refreshStatus();
+  loadContacts();
+  initRoute();
+}
+const saveTokenBtn = $("#saveTokenBtn");
+if (saveTokenBtn) {
+  showTokenState();
+  saveTokenBtn.addEventListener("click", () => {
+    const val = $("#accessToken").value.trim();
+    try {
+      if (val) localStorage.setItem("commsToken", val);
+      else localStorage.removeItem("commsToken");
+    } catch (e) { /* ignore */ }
+    $("#accessToken").value = "";
+    showTokenState();
+    toast(val ? "Token saved" : "Token cleared");
+    reloadAll();
+  });
+}
 
 // ---------------------------------------------------------------- Init
 try { deepSelect = new URLSearchParams(location.search).get("contact"); } catch (e) { /* ignore */ }

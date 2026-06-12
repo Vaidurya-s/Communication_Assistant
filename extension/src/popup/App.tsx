@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
 import { getSelfNameSetting, setSelfNameSetting } from "../shared/storage";
+import {
+  getBackendSettings,
+  setBackendSettings,
+  originMatchPattern,
+  isDefaultOrigin,
+  DEFAULT_ORIGIN,
+} from "../shared/clientConfig";
 import { isSupportedMessagingUrl } from "../platforms/urls";
 
 export function App() {
@@ -8,8 +15,17 @@ export function App() {
   const [activeTabUrl, setActiveTabUrl] = useState<string>("");
   const [openStatus, setOpenStatus] = useState<string>("");
 
+  const [backendOrigin, setBackendOrigin] = useState<string>(DEFAULT_ORIGIN);
+  const [backendToken, setBackendToken] = useState<string>("");
+  const [backendSaved, setBackendSaved] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<string>("");
+
   useEffect(() => {
     getSelfNameSetting().then(setSelfName);
+    getBackendSettings().then((s) => {
+      setBackendOrigin(s.origin);
+      setBackendToken(s.token);
+    });
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
       setActiveTabUrl(tab?.url ?? "");
     });
@@ -19,6 +35,28 @@ export function App() {
     await setSelfNameSetting(selfName);
     setSaved(true);
     setTimeout(() => setSaved(false), 1200);
+  };
+
+  const onSaveBackend = async () => {
+    const origin = backendOrigin.trim();
+    setBackendStatus("");
+    // A non-localhost origin needs host permission before the content script /
+    // worker may call it. Request it from this user gesture (the Save click).
+    if (origin && !isDefaultOrigin(origin)) {
+      try {
+        const granted = await chrome.permissions.request({ origins: [originMatchPattern(origin)] });
+        if (!granted) {
+          setBackendStatus("Permission denied for that origin — not saved.");
+          return;
+        }
+      } catch (e) {
+        setBackendStatus((e as Error).message);
+        return;
+      }
+    }
+    await setBackendSettings({ origin, token: backendToken });
+    setBackendSaved(true);
+    setTimeout(() => setBackendSaved(false), 1200);
   };
 
   const openPanel = async () => {
@@ -81,6 +119,36 @@ export function App() {
           {saved ? "Saved ✓" : "Save"}
         </button>
       </div>
+
+      <hr className="pop-divider" />
+
+      <label className="pop-label">
+        Backend URL <span className="pop-hint">(default: local)</span>
+      </label>
+      <input
+        type="text"
+        value={backendOrigin}
+        onChange={(e) => setBackendOrigin(e.target.value)}
+        placeholder={DEFAULT_ORIGIN}
+        className="pop-input"
+        style={{ width: "100%" }}
+      />
+      <label className="pop-label" style={{ marginTop: 10 }}>
+        Access token <span className="pop-hint">(hosted backends only)</span>
+      </label>
+      <div className="pop-row">
+        <input
+          type="password"
+          value={backendToken}
+          onChange={(e) => setBackendToken(e.target.value)}
+          placeholder="paste token if required"
+          className="pop-input"
+        />
+        <button onClick={onSaveBackend} className="pop-btn">
+          {backendSaved ? "Saved ✓" : "Save"}
+        </button>
+      </div>
+      {backendStatus && <div className="pop-substatus">{backendStatus}</div>}
 
       <div className={`pop-status${onSupported ? " ok" : ""}`}>
         {onSupported ? (

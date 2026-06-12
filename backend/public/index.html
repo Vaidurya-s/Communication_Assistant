@@ -206,6 +206,21 @@
           </div>
 
           <div class="panel">
+            <div class="panel-head"><h2>Access token</h2><span class="panel-kick">Hosted</span></div>
+            <p class="muted">
+              Only needed in hosted mode (<code>COMMS_REQUIRE_AUTH=1</code>). Paste your bearer
+              token to authorize this console. Stored locally in your browser; leave blank in local mode.
+            </p>
+            <label>Token
+              <input id="accessToken" type="password" placeholder="paste bearer token" autocomplete="off" />
+            </label>
+            <div class="btn-row">
+              <button id="saveTokenBtn" class="btn primary">Save</button>
+            </div>
+            <div class="status" id="tokenStatus"></div>
+          </div>
+
+          <div class="panel">
             <div class="panel-head"><h2>Preferences</h2><span class="panel-kick">Local</span></div>
             <div class="pref-row">
               <div><div class="pref-title">Appearance</div><div class="muted small">Switch between dark and light themes.</div></div>

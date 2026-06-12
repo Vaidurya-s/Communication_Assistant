@@ -71,6 +71,8 @@ export interface Config {
   requireAuth: boolean;
   /** CORS allow-list: "*" (default, local) or a comma-separated origin list. */
   corsOrigins: string;
+  /** Per-tenant requests/minute on the LLM route; 0 (default) = unlimited. */
+  rateLimitPerMin: number;
 }
 
 let cached: Config | null = null;
@@ -88,6 +90,7 @@ export function getConfig(): Config {
     },
     requireAuth: parseBool(process.env.COMMS_REQUIRE_AUTH),
     corsOrigins: process.env.COMMS_CORS_ORIGINS ?? "*",
+    rateLimitPerMin: parseInt0(process.env.COMMS_RATE_LIMIT_PER_MIN, 0),
   };
   return cached;
 }
