@@ -19,6 +19,10 @@ import type { IncomingContactProfile } from "./prompt.js";
  * user approval — can be added without re-plumbing the schema, and so the
  * prompt-injection read path can filter to user-confirmed only with a
  * single WHERE clause.
+ *
+ * Tenancy (H1): every function takes a `tenantId` as its first argument and
+ * every statement is scoped by `tenant_id`, so one tenant can never read or
+ * mutate another's data. Single-user installs use the implicit "local" tenant.
  */
 export type ProposedBy = "llm" | "user" | "system";
 
@@ -112,26 +116,26 @@ function rowToContact(row: ContactRow): Contact {
   };
 }
 
-export function upsertContact(name: string, threadUrl: string | null): void {
+export function upsertContact(tenantId: string, name: string, threadUrl: string | null): void {
   if (!name) return;
   const now = new Date().toISOString();
   const db = getDb();
   db.prepare(
     `
-    INSERT INTO contacts (name, first_seen, last_seen, last_thread_url)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(name) DO UPDATE SET
+    INSERT INTO contacts (tenant_id, name, first_seen, last_seen, last_thread_url)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(tenant_id, name) DO UPDATE SET
       last_seen = excluded.last_seen,
       last_thread_url = COALESCE(excluded.last_thread_url, last_thread_url)
     `,
-  ).run(name, now, now, threadUrl);
+  ).run(tenantId, name, now, now, threadUrl);
 }
 
-export function getContact(name: string): Contact | null {
+export function getContact(tenantId: string, name: string): Contact | null {
   if (!name) return null;
   const row = getDb()
-    .prepare(`SELECT * FROM contacts WHERE name = ?`)
-    .get(name) as ContactRow | undefined;
+    .prepare(`SELECT * FROM contacts WHERE tenant_id = ? AND name = ?`)
+    .get(tenantId, name) as ContactRow | undefined;
   return row ? rowToContact(row) : null;
 }
 
@@ -146,11 +150,11 @@ interface ContactSummaryRow extends ContactRow {
 }
 
 /**
- * Every contact, newest activity first, with per-contact note counts. Powers
- * the management console's list view. The LEFT JOIN keeps contacts that have
- * no notes yet.
+ * Every contact for this tenant, newest activity first, with per-contact note
+ * counts. Powers the management console's list view. The LEFT JOIN keeps
+ * contacts that have no notes yet, and is itself tenant-scoped.
  */
-export function getAllContacts(): ContactSummary[] {
+export function getAllContacts(tenantId: string): ContactSummary[] {
   const rows = getDb()
     .prepare(
       `
@@ -159,12 +163,13 @@ export function getAllContacts(): ContactSummary[] {
         COUNT(n.id) AS note_count,
         COALESCE(SUM(CASE WHEN n.confirmed_by_user = 0 THEN 1 ELSE 0 END), 0) AS unconfirmed_count
       FROM contacts c
-      LEFT JOIN notes n ON n.contact_name = c.name
+      LEFT JOIN notes n ON n.contact_name = c.name AND n.tenant_id = c.tenant_id
+      WHERE c.tenant_id = ?
       GROUP BY c.name
       ORDER BY c.last_seen DESC
       `,
     )
-    .all() as ContactSummaryRow[];
+    .all(tenantId) as ContactSummaryRow[];
   return rows.map((row) => ({
     ...rowToContact(row),
     note_count: Number(row.note_count) || 0,
@@ -173,25 +178,29 @@ export function getAllContacts(): ContactSummary[] {
 }
 
 /** Delete a contact and (via ON DELETE CASCADE) all of its notes. */
-export function deleteContact(name: string): boolean {
+export function deleteContact(tenantId: string, name: string): boolean {
   if (!name) return false;
-  const info = getDb().prepare(`DELETE FROM contacts WHERE name = ?`).run(name);
+  const info = getDb()
+    .prepare(`DELETE FROM contacts WHERE tenant_id = ? AND name = ?`)
+    .run(tenantId, name);
   return info.changes > 0;
 }
 
-/** Delete a single note by id. */
-export function deleteNote(id: number): boolean {
+/** Delete a single note by id (scoped to the tenant — a foreign id no-ops). */
+export function deleteNote(tenantId: string, id: number): boolean {
   if (!Number.isInteger(id)) return false;
-  const info = getDb().prepare(`DELETE FROM notes WHERE id = ?`).run(id);
+  const info = getDb().prepare(`DELETE FROM notes WHERE id = ? AND tenant_id = ?`).run(id, tenantId);
   return info.changes > 0;
 }
 
 /** Edit a note's body in place. Rejects an empty body. */
-export function updateNote(id: number, body: string): boolean {
+export function updateNote(tenantId: string, id: number, body: string): boolean {
   if (!Number.isInteger(id)) return false;
   const trimmed = body.trim();
   if (!trimmed) throw new Error("note body must be non-empty");
-  const info = getDb().prepare(`UPDATE notes SET body = ? WHERE id = ?`).run(trimmed, id);
+  const info = getDb()
+    .prepare(`UPDATE notes SET body = ? WHERE id = ? AND tenant_id = ?`)
+    .run(trimmed, id, tenantId);
   return info.changes > 0;
 }
 
@@ -201,16 +210,20 @@ interface GetNotesOptions {
   includeUnconfirmed?: boolean;
 }
 
-export function getNotesFor(name: string, opts: GetNotesOptions | number = {}): Note[] {
+export function getNotesFor(
+  tenantId: string,
+  name: string,
+  opts: GetNotesOptions | number = {},
+): Note[] {
   if (!name) return [];
   const options: GetNotesOptions = typeof opts === "number" ? { limit: opts } : opts;
   const limit = options.limit ?? MAX_NOTES_INJECTED;
   const where = options.includeUnconfirmed
-    ? `contact_name = ?`
-    : `contact_name = ? AND confirmed_by_user = 1`;
+    ? `tenant_id = ? AND contact_name = ?`
+    : `tenant_id = ? AND contact_name = ? AND confirmed_by_user = 1`;
   return getDb()
     .prepare(`SELECT * FROM notes WHERE ${where} ORDER BY created_at DESC LIMIT ?`)
-    .all(name, limit) as Note[];
+    .all(tenantId, name, limit) as Note[];
 }
 
 /**
@@ -221,18 +234,23 @@ export function getNotesFor(name: string, opts: GetNotesOptions | number = {}): 
  * action. To write an unconfirmed/pending note (future automated path),
  * use proposeNote() instead.
  */
-export function addNote(contactName: string, body: string, source: "auto" | "manual"): number {
+export function addNote(
+  tenantId: string,
+  contactName: string,
+  body: string,
+  source: "auto" | "manual",
+): number {
   if (!contactName || !body.trim()) {
     throw new Error("contactName and non-empty body required");
   }
-  upsertContact(contactName, null);
+  upsertContact(tenantId, contactName, null);
   const proposedBy: ProposedBy = source === "auto" ? "llm" : "user";
   const info = getDb()
     .prepare(
-      `INSERT INTO notes (contact_name, body, source, proposed_by, confirmed_by_user, confirmed_at)
-       VALUES (?, ?, ?, ?, 1, datetime('now'))`,
+      `INSERT INTO notes (tenant_id, contact_name, body, source, proposed_by, confirmed_by_user, confirmed_at)
+       VALUES (?, ?, ?, ?, ?, 1, datetime('now'))`,
     )
-    .run(contactName, body.trim(), source, proposedBy);
+    .run(tenantId, contactName, body.trim(), source, proposedBy);
   return Number(info.lastInsertRowid);
 }
 
@@ -243,6 +261,7 @@ export function addNote(contactName: string, body: string, source: "auto" | "man
  * confirmNote() is called.
  */
 export function proposeNote(
+  tenantId: string,
   contactName: string,
   body: string,
   proposedBy: Exclude<ProposedBy, "user"> = "llm",
@@ -250,41 +269,46 @@ export function proposeNote(
   if (!contactName || !body.trim()) {
     throw new Error("contactName and non-empty body required");
   }
-  upsertContact(contactName, null);
+  upsertContact(tenantId, contactName, null);
   const info = getDb()
     .prepare(
-      `INSERT INTO notes (contact_name, body, source, proposed_by, confirmed_by_user, confirmed_at)
-       VALUES (?, ?, 'auto', ?, 0, NULL)`,
+      `INSERT INTO notes (tenant_id, contact_name, body, source, proposed_by, confirmed_by_user, confirmed_at)
+       VALUES (?, ?, ?, 'auto', ?, 0, NULL)`,
     )
-    .run(contactName, body.trim(), proposedBy);
+    .run(tenantId, contactName, body.trim(), proposedBy);
   return Number(info.lastInsertRowid);
 }
 
-/** Promote a previously-proposed note to user-confirmed. */
-export function confirmNote(id: number): void {
+/** Promote a previously-proposed note to user-confirmed (tenant-scoped). */
+export function confirmNote(tenantId: string, id: number): void {
   getDb()
     .prepare(
       `UPDATE notes SET confirmed_by_user = 1, confirmed_at = datetime('now')
-       WHERE id = ? AND confirmed_by_user = 0`,
+       WHERE id = ? AND tenant_id = ? AND confirmed_by_user = 0`,
     )
-    .run(id);
+    .run(id, tenantId);
 }
 
-export function setFollowupAt(contactName: string, iso: string | null): void {
+export function setFollowupAt(tenantId: string, contactName: string, iso: string | null): void {
   if (!contactName) return;
-  upsertContact(contactName, null);
+  upsertContact(tenantId, contactName, null);
   getDb()
-    .prepare(`UPDATE contacts SET suggested_followup_at = ? WHERE name = ?`)
-    .run(iso, contactName);
+    .prepare(`UPDATE contacts SET suggested_followup_at = ? WHERE tenant_id = ? AND name = ?`)
+    .run(iso, tenantId, contactName);
 }
 
-export function recordStrategy(contactName: string, text: string, followupAt: string | null): void {
+export function recordStrategy(
+  tenantId: string,
+  contactName: string,
+  text: string,
+  followupAt: string | null,
+): void {
   if (!contactName || !text.trim()) return;
   getDb()
     .prepare(
-      `INSERT INTO strategy_log (contact_name, text, suggested_followup_at) VALUES (?, ?, ?)`,
+      `INSERT INTO strategy_log (tenant_id, contact_name, text, suggested_followup_at) VALUES (?, ?, ?, ?)`,
     )
-    .run(contactName, text.trim(), followupAt);
+    .run(tenantId, contactName, text.trim(), followupAt);
 }
 
 export interface StrategyEntry {
@@ -295,15 +319,15 @@ export interface StrategyEntry {
   suggested_followup_at: string | null;
 }
 
-/** Recent strategic reads, newest first. Powers the Activity timeline. */
-export function getRecentStrategies(limit = 50): StrategyEntry[] {
+/** Recent strategic reads for this tenant, newest first. Powers the Activity timeline. */
+export function getRecentStrategies(tenantId: string, limit = 50): StrategyEntry[] {
   const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 500) : 50;
   return getDb()
     .prepare(
       `SELECT id, contact_name, read_at, text, suggested_followup_at
-       FROM strategy_log ORDER BY read_at DESC, id DESC LIMIT ?`,
+       FROM strategy_log WHERE tenant_id = ? ORDER BY read_at DESC, id DESC LIMIT ?`,
     )
-    .all(n) as StrategyEntry[];
+    .all(tenantId, n) as StrategyEntry[];
 }
 
 export interface MemoryStats {
@@ -316,24 +340,34 @@ export interface MemoryStats {
   strategies: number;
 }
 
-/** Aggregate counts for the Overview cards. `nowIso` defines "due". */
-export function getStats(nowIso: string): MemoryStats {
+/** Aggregate counts for the Overview cards, scoped to the tenant. `nowIso` defines "due". */
+export function getStats(tenantId: string, nowIso: string): MemoryStats {
   const db = getDb();
   const one = (sql: string, ...args: unknown[]): number => {
     const row = db.prepare(sql).get(...args) as { n: number } | undefined;
     return row ? Number(row.n) || 0 : 0;
   };
   return {
-    contacts: one(`SELECT COUNT(*) AS n FROM contacts`),
-    notes: one(`SELECT COUNT(*) AS n FROM notes`),
-    pending_notes: one(`SELECT COUNT(*) AS n FROM notes WHERE confirmed_by_user = 0`),
-    enriched_profiles: one(`SELECT COUNT(*) AS n FROM contacts WHERE profile_fetched_at IS NOT NULL`),
+    contacts: one(`SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ?`, tenantId),
+    notes: one(`SELECT COUNT(*) AS n FROM notes WHERE tenant_id = ?`, tenantId),
+    pending_notes: one(
+      `SELECT COUNT(*) AS n FROM notes WHERE tenant_id = ? AND confirmed_by_user = 0`,
+      tenantId,
+    ),
+    enriched_profiles: one(
+      `SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ? AND profile_fetched_at IS NOT NULL`,
+      tenantId,
+    ),
     followups_due: one(
-      `SELECT COUNT(*) AS n FROM contacts WHERE suggested_followup_at IS NOT NULL AND suggested_followup_at <= ?`,
+      `SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ? AND suggested_followup_at IS NOT NULL AND suggested_followup_at <= ?`,
+      tenantId,
       nowIso,
     ),
-    followups_total: one(`SELECT COUNT(*) AS n FROM contacts WHERE suggested_followup_at IS NOT NULL`),
-    strategies: one(`SELECT COUNT(*) AS n FROM strategy_log`),
+    followups_total: one(
+      `SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ? AND suggested_followup_at IS NOT NULL`,
+      tenantId,
+    ),
+    strategies: one(`SELECT COUNT(*) AS n FROM strategy_log WHERE tenant_id = ?`, tenantId),
   };
 }
 
@@ -345,9 +379,13 @@ export function getStats(nowIso: string): MemoryStats {
  *
  * Idempotent: re-running with the same input overwrites the previous values.
  */
-export function upsertProfile(contactName: string, profile: IncomingContactProfile): void {
+export function upsertProfile(
+  tenantId: string,
+  contactName: string,
+  profile: IncomingContactProfile,
+): void {
   if (!contactName) return;
-  upsertContact(contactName, null);
+  upsertContact(tenantId, contactName, null);
 
   const experience = JSON.stringify(profile.experience ?? []);
   const education = JSON.stringify(profile.education ?? []);
@@ -367,7 +405,7 @@ export function upsertProfile(contactName: string, profile: IncomingContactProfi
         education_json     = ?,
         skills_json        = ?,
         profile_fetched_at = COALESCE(?, profile_fetched_at)
-      WHERE name = ?
+      WHERE tenant_id = ? AND name = ?
       `,
     )
     .run(
@@ -381,6 +419,7 @@ export function upsertProfile(contactName: string, profile: IncomingContactProfi
       education,
       skills,
       profile.fetchedAt ?? new Date().toISOString(),
+      tenantId,
       contactName,
     );
 }

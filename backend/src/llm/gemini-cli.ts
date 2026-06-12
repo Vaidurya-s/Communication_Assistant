@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { getWorkspacePath } from "../workspace.js";
-import type { LLMProvider, LLMResult } from "./types.js";
+import { ensureWorkspace } from "../workspace.js";
+import { DEFAULT_TENANT } from "../tenant.js";
+import type { LLMProvider, LLMResult, LLMRunOptions } from "./types.js";
 
 // On Windows the npm-installed gemini CLI is a .ps1/.cmd shim; on POSIX it's a
 // shebang script. `shell: true` lets Node resolve whichever exists on PATH.
@@ -17,18 +18,20 @@ const GEMINI_BIN = "gemini";
 export function createGeminiCliProvider(timeoutMs: number): LLMProvider {
   return {
     name: "gemini-cli",
-    run(instruction: string, context: string): Promise<LLMResult> {
+    run(instruction: string, context: string, opts?: LLMRunOptions): Promise<LLMResult> {
       return new Promise((resolvePromise, reject) => {
         const start = Date.now();
+        // cwd is the tenant's isolated sandbox, ensured (created + populated)
+        // here so a tenant's first call works without a boot-time pre-warm.
+        // gemini's Read/Grep tools cannot see anything outside this directory.
+        const workspace = ensureWorkspace(opts?.tenantId ?? DEFAULT_TENANT);
         const child = spawn(
           GEMINI_BIN,
           ["--approval-mode", "plan", "--skip-trust"],
           {
             shell: true,
             windowsHide: true,
-            // cwd is the isolated sandbox built at server startup. gemini's
-            // Read/Grep tools cannot see anything outside this directory.
-            cwd: getWorkspacePath(),
+            cwd: workspace,
           },
         );
 

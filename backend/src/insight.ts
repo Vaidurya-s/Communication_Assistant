@@ -11,6 +11,7 @@ interface InsightInput {
   transcript: string;
   existingNotes: Note[];
   todayIso: string; // helps gemini compute followup dates relative to "now"
+  tenantId?: string; // selects the tenant's gemini sandbox; defaults to local
 }
 
 const INSTRUCTION =
@@ -54,7 +55,7 @@ export async function generateInsight(input: InsightInput): Promise<InsightResul
   ].join("\n");
 
   try {
-    const result = await runLLM(INSTRUCTION, context);
+    const result = await runLLM(INSTRUCTION, context, { tenantId: input.tenantId });
     return parseInsight(result.text, input.contactName);
   } catch (err) {
     console.warn("[insight] llm failed (returning empty):", (err as Error).message);

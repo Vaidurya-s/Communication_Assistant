@@ -14,11 +14,16 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const SNAPSHOT_DIR = resolve(process.cwd(), "data", "snapshots");
+function snapshotDir(tenantId: string): string {
+  // Sanitise — tenantId can come from a request header; never let it escape the dir.
+  const safe = tenantId.replace(/[^a-zA-Z0-9_-]/g, "_") || "local";
+  return resolve(process.cwd(), "data", "snapshots", safe);
+}
 
-function ensureDir(): string {
-  if (!existsSync(SNAPSHOT_DIR)) mkdirSync(SNAPSHOT_DIR, { recursive: true });
-  return SNAPSHOT_DIR;
+function ensureDir(tenantId: string): string {
+  const dir = snapshotDir(tenantId);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function filenameFor(capturedAt: string | undefined): { id: string; filename: string } {
@@ -38,14 +43,14 @@ export interface SaveResult {
   bytes: number;
 }
 
-export function saveSnapshot(payload: unknown): SaveResult {
-  ensureDir();
+export function saveSnapshot(tenantId: string, payload: unknown): SaveResult {
+  const dir = ensureDir(tenantId);
   const capturedAt =
     typeof payload === "object" && payload !== null && "capturedAt" in payload
       ? (payload as { capturedAt?: unknown }).capturedAt
       : undefined;
   const { id, filename } = filenameFor(typeof capturedAt === "string" ? capturedAt : undefined);
-  const path = join(SNAPSHOT_DIR, filename);
+  const path = join(dir, filename);
   const enriched = {
     id,
     savedAt: new Date().toISOString(),
@@ -68,8 +73,8 @@ export interface SnapshotIndexEntry {
   anomalies: string[];
 }
 
-function readIndexEntry(filename: string): SnapshotIndexEntry | null {
-  const path = join(SNAPSHOT_DIR, filename);
+function readIndexEntry(dir: string, filename: string): SnapshotIndexEntry | null {
+  const path = join(dir, filename);
   try {
     const stat = statSync(path);
     const raw = readFileSync(path, "utf-8");
@@ -91,17 +96,18 @@ function readIndexEntry(filename: string): SnapshotIndexEntry | null {
   }
 }
 
-export function listSnapshots(): SnapshotIndexEntry[] {
-  if (!existsSync(SNAPSHOT_DIR)) return [];
-  const entries = readdirSync(SNAPSHOT_DIR)
+export function listSnapshots(tenantId: string): SnapshotIndexEntry[] {
+  const dir = snapshotDir(tenantId);
+  if (!existsSync(dir)) return [];
+  const entries = readdirSync(dir)
     .filter((f) => f.startsWith("snapshot-") && f.endsWith(".json"))
-    .map(readIndexEntry)
+    .map((f) => readIndexEntry(dir, f))
     .filter((e): e is SnapshotIndexEntry => e !== null);
   // Newest first.
   entries.sort((a, b) => (b.savedAt > a.savedAt ? 1 : -1));
   return entries;
 }
 
-export function getSnapshotDir(): string {
-  return SNAPSHOT_DIR;
+export function getSnapshotDir(tenantId: string): string {
+  return snapshotDir(tenantId);
 }

@@ -35,6 +35,7 @@ import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
 import { appendFeedback, readFeedbackEntries } from "./feedback.js";
+import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -49,20 +50,42 @@ const app = express();
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "2mb" }));
 
+// Tenant resolver. Every request is scoped to a tenant so one account's data
+// can never leak into another's. The X-Comms-Tenant header is the seam; absent
+// → the implicit single-user "local" tenant, so the dashboard and extension
+// (which send no header) are byte-for-byte unchanged. This is the ONE place the
+// header is read — H2 replaces it with authenticated identity.
+interface RequestWithTenant extends Request {
+  tenantId: string;
+}
+app.use((req: Request, _res: Response, next) => {
+  (req as RequestWithTenant).tenantId = tenantOf(req);
+  next();
+});
+function tenant(req: Request): string {
+  return (req as RequestWithTenant).tenantId ?? DEFAULT_TENANT;
+}
+
 // Serve the management console (contact browser + LLM settings). Vanilla
 // HTML/JS, no build step. API routes all use distinct prefixes (/memory,
 // /config, /analyze, /health) so static serving of / and /app.js can't shadow
 // them.
 app.use(express.static(resolve(process.cwd(), "public")));
 
-let cachedVoice: string | null = null;
-function getVoice(): string {
-  if (cachedVoice === null) cachedVoice = loadVoiceProfile();
-  return cachedVoice;
+// Per-tenant voice cache. Each tenant's compiled profile is loaded once and
+// memoised; the local tenant is the only one on a single-user install.
+const voiceCache = new Map<string, string>();
+function getVoice(tenantId: string): string {
+  let v = voiceCache.get(tenantId);
+  if (v === undefined) {
+    v = loadVoiceProfile(tenantId);
+    voiceCache.set(tenantId, v);
+  }
+  return v;
 }
 
-app.get("/health", (_req: Request, res: Response) => {
-  const voiceChars = getVoice().length;
+app.get("/health", (req: Request, res: Response) => {
+  const voiceChars = getVoice(tenant(req)).length;
   res.json({
     ok: true,
     voiceProfileChars: voiceChars,
@@ -101,11 +124,13 @@ app.post("/analyze", async (req: Request, res: Response) => {
     return;
   }
 
+  const t = tenant(req);
+
   // Read memory for this contact and inject into prompt.
   let existingNoteBodies: string[] = [];
   if (contactName) {
-    upsertContact(contactName, threadUrl);
-    existingNoteBodies = getNotesFor(contactName).map((n) => n.body);
+    upsertContact(t, contactName, threadUrl);
+    existingNoteBodies = getNotesFor(t, contactName).map((n) => n.body);
 
     // Persist the contact profile (if attached). The extension caches profiles
     // client-side and re-attaches them on every /analyze; we mirror it here so
@@ -113,7 +138,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     const incomingProfile = ctx?.contact_profile as IncomingContactProfile | null | undefined;
     if (incomingProfile && typeof incomingProfile === "object") {
       try {
-        upsertProfile(contactName, incomingProfile);
+        upsertProfile(t, contactName, incomingProfile);
       } catch (err) {
         console.warn("[analyze] upsertProfile failed:", (err as Error).message);
       }
@@ -122,7 +147,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
 
   const { instruction, context, resolvedMode, transcript } = buildPrompt({
     ctx,
-    voiceProfile: getVoice(),
+    voiceProfile: getVoice(t),
     mode,
     seedText,
     steer,
@@ -131,7 +156,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
 
   // Fire reply + insight in parallel. Insight is run on the FULL transcript
   // regardless of mode (it always benefits from full context).
-  const replyPromise = runLLM(instruction, context);
+  const replyPromise = runLLM(instruction, context, { tenantId: t });
 
   // Only run insight when we have a real conversation to analyze. shorter/formal
   // are pure rewrites — they shouldn't trigger memory updates.
@@ -140,8 +165,9 @@ app.post("/analyze", async (req: Request, res: Response) => {
     ? generateInsight({
         contactName,
         transcript,
-        existingNotes: getNotesFor(contactName),
+        existingNotes: getNotesFor(t, contactName),
         todayIso: new Date().toISOString().slice(0, 10),
+        tenantId: t,
       })
     : Promise.resolve({ memory_proposal: null, strategy: null });
 
@@ -167,9 +193,9 @@ app.post("/analyze", async (req: Request, res: Response) => {
   }
 
   if (insight.strategy && contactName) {
-    recordStrategy(contactName, insight.strategy.text, insight.strategy.suggested_followup_at);
+    recordStrategy(t, contactName, insight.strategy.text, insight.strategy.suggested_followup_at);
     if (insight.strategy.suggested_followup_at) {
-      setFollowupAt(contactName, insight.strategy.suggested_followup_at);
+      setFollowupAt(t, contactName, insight.strategy.suggested_followup_at);
     }
   }
 
@@ -200,7 +226,7 @@ app.post("/memory/notes", (req: Request, res: Response) => {
     return;
   }
   try {
-    const id = addNote(contact_name, note, "auto");
+    const id = addNote(tenant(req), contact_name, note, "auto");
     res.json({ id });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -214,7 +240,7 @@ app.post("/memory/notes/manual", (req: Request, res: Response) => {
     return;
   }
   try {
-    const id = addNote(contact_name, note, "manual");
+    const id = addNote(tenant(req), contact_name, note, "manual");
     res.json({ id });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -234,6 +260,7 @@ app.post("/feedback", (req: Request, res: Response) => {
   }
   try {
     appendFeedback(
+      tenant(req),
       {
         rating,
         note: typeof note === "string" ? note : undefined,
@@ -260,7 +287,7 @@ app.post("/snapshots", (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = saveSnapshot(req.body);
+    const result = saveSnapshot(tenant(req), req.body);
     console.log(`[snapshots] saved ${result.filename} (${result.bytes} bytes)`);
     res.json(result);
   } catch (err) {
@@ -269,17 +296,17 @@ app.post("/snapshots", (req: Request, res: Response) => {
   }
 });
 
-app.get("/snapshots", (_req: Request, res: Response) => {
+app.get("/snapshots", (req: Request, res: Response) => {
   try {
-    res.json({ snapshots: listSnapshots() });
+    res.json({ snapshots: listSnapshots(tenant(req)) });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
 });
 
-app.get("/memory/contacts", (_req: Request, res: Response) => {
+app.get("/memory/contacts", (req: Request, res: Response) => {
   try {
-    res.json({ contacts: getAllContacts() });
+    res.json({ contacts: getAllContacts(tenant(req)) });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -288,7 +315,7 @@ app.get("/memory/contacts", (_req: Request, res: Response) => {
 app.get("/memory/strategies", (req: Request, res: Response) => {
   const limit = Number(req.query.limit);
   try {
-    res.json({ strategies: getRecentStrategies(Number.isFinite(limit) ? limit : 50) });
+    res.json({ strategies: getRecentStrategies(tenant(req), Number.isFinite(limit) ? limit : 50) });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -296,14 +323,14 @@ app.get("/memory/strategies", (req: Request, res: Response) => {
 
 // --- Overview / stats ------------------------------------------------------
 
-app.get("/stats", (_req: Request, res: Response) => {
+app.get("/stats", (req: Request, res: Response) => {
   try {
-    const stats = getStats(new Date().toISOString());
-    const voiceChars = getVoice().length;
+    const stats = getStats(tenant(req), new Date().toISOString());
+    const voiceChars = getVoice(tenant(req)).length;
     res.json({
       ...stats,
-      snapshots: listSnapshots().length,
-      feedback: readFeedbackEntries().length,
+      snapshots: listSnapshots(tenant(req)).length,
+      feedback: readFeedbackEntries(tenant(req)).length,
       provider: getProviderName(),
       voice_profile_chars: voiceChars,
       voice_profile_ok: voiceChars > 40,
@@ -315,10 +342,10 @@ app.get("/stats", (_req: Request, res: Response) => {
 
 // --- Voice profile (read-only view) ----------------------------------------
 
-app.get("/voice", (_req: Request, res: Response) => {
+app.get("/voice", (req: Request, res: Response) => {
   try {
-    const content = loadVoiceProfile();
-    const path = voiceProfilePath();
+    const content = loadVoiceProfile(tenant(req));
+    const path = voiceProfilePath(tenant(req));
     let updatedAt: string | null = null;
     if (existsSync(path)) {
       try { updatedAt = statSync(path).mtime.toISOString(); } catch { /* ignore */ }
@@ -328,7 +355,7 @@ app.get("/voice", (_req: Request, res: Response) => {
       chars: content.length,
       ok: content.length > 40,
       updated_at: updatedAt,
-      feedback: readFeedbackEntries(),
+      feedback: readFeedbackEntries(tenant(req)),
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -337,19 +364,19 @@ app.get("/voice", (_req: Request, res: Response) => {
 
 app.get("/memory/contact/:name", (req: Request, res: Response) => {
   const name = req.params.name;
-  const contact = getContact(name);
+  const contact = getContact(tenant(req), name);
   if (!contact) {
     res.json({ contact: null, notes: [] });
     return;
   }
   // The console shows pending (unconfirmed) notes too, so the user can confirm
   // or discard them from one place.
-  const notes = getNotesFor(name, { includeUnconfirmed: true, limit: 200 });
+  const notes = getNotesFor(tenant(req), name, { includeUnconfirmed: true, limit: 200 });
   res.json({ contact, notes });
 });
 
 app.delete("/memory/contact/:name", (req: Request, res: Response) => {
-  const deleted = deleteContact(req.params.name);
+  const deleted = deleteContact(tenant(req), req.params.name);
   res.json({ ok: true, deleted });
 });
 
@@ -359,7 +386,7 @@ app.delete("/memory/notes/:id", (req: Request, res: Response) => {
     res.status(400).json({ error: "id must be an integer" });
     return;
   }
-  const deleted = deleteNote(id);
+  const deleted = deleteNote(tenant(req), id);
   if (!deleted) {
     res.status(404).json({ error: "note not found" });
     return;
@@ -379,7 +406,7 @@ app.patch("/memory/notes/:id", (req: Request, res: Response) => {
     return;
   }
   try {
-    const updated = updateNote(id, body);
+    const updated = updateNote(tenant(req), id, body);
     if (!updated) {
       res.status(404).json({ error: "note not found" });
       return;
@@ -396,7 +423,7 @@ app.post("/memory/notes/:id/confirm", (req: Request, res: Response) => {
     res.status(400).json({ error: "id must be an integer" });
     return;
   }
-  confirmNote(id);
+  confirmNote(tenant(req), id);
   res.json({ ok: true });
 });
 
@@ -546,7 +573,7 @@ app.post("/config/test", async (req: Request, res: Response) => {
   }
 });
 
-const PORT = 8000;
+const PORT = Number(process.env.PORT) || 8000;
 
 // Hard startup validation. If the runtime voice profile is missing or
 // empty, we refuse to boot — silent degradation to "no voice profile
@@ -565,8 +592,8 @@ try {
 // (delete, config-write); binding to 127.0.0.1 keeps them off the network so
 // only this machine can reach them.
 app.listen(PORT, "127.0.0.1", () => {
-  ensureWorkspace();
-  const voiceChars = getVoice().length;
+  ensureWorkspace(DEFAULT_TENANT);
+  const voiceChars = getVoice(DEFAULT_TENANT).length;
   console.log(`backend on http://127.0.0.1:${PORT} — voice profile loaded (${voiceChars} chars) — provider=${getProviderName()}`);
   console.log(`console: http://127.0.0.1:${PORT}/`);
 });

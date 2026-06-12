@@ -1,7 +1,7 @@
 import { getConfig } from "../config.js";
 import { createGeminiCliProvider } from "./gemini-cli.js";
 import { createOpenAiCompatProvider } from "./openai-compat.js";
-import type { LLMProvider, LLMResult } from "./types.js";
+import type { LLMProvider, LLMResult, LLMRunOptions } from "./types.js";
 
 let provider: LLMProvider | null = null;
 
@@ -29,8 +29,12 @@ function getProvider(): LLMProvider {
   return provider;
 }
 
-export function runLLM(instruction: string, context: string): Promise<LLMResult> {
-  return getProvider().run(instruction, context);
+export function runLLM(
+  instruction: string,
+  context: string,
+  opts?: LLMRunOptions,
+): Promise<LLMResult> {
+  return getProvider().run(instruction, context, opts);
 }
 
 /**
@@ -46,4 +50,4 @@ export function getProviderName(): string {
   return getProvider().name;
 }
 
-export type { LLMResult };
+export type { LLMResult, LLMRunOptions };
