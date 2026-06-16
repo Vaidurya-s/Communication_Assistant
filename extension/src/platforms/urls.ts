@@ -10,6 +10,15 @@
  */
 import type { Platform } from "../shared/types";
 
+/**
+ * URL-hash marker the background's profile-enrichment fetcher appends when it
+ * opens a profile in a hidden tab. The content script checks for it to skip
+ * mounting the cold-open overlay in those throwaway tabs (they're scraped and
+ * closed, never seen). A user-opened profile has no such hash, so the overlay
+ * mounts there regardless of tab visibility.
+ */
+export const ENRICHMENT_HASH = "#comms-enrich";
+
 export interface PlatformUrls {
   readonly platform: Platform;
   isMessagingUrl(u: URL): boolean;
@@ -51,4 +60,13 @@ export function isSupportedMessagingUrl(url: string): boolean {
 export function isProfileUrl(url: string): boolean {
   const u = parse(url);
   return !!u && PLATFORM_URLS.some((p) => p.isProfileUrl(u));
+}
+
+/**
+ * True if the overlay can mount here at all — a messaging surface (reply
+ * drafting) OR a profile page (cold-open first-message drafting). The
+ * background uses this to decide whether to inject the content script.
+ */
+export function isOverlayUrl(url: string): boolean {
+  return isSupportedMessagingUrl(url) || isProfileUrl(url);
 }

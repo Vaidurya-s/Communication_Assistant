@@ -7,7 +7,7 @@ import {
   isDefaultOrigin,
   DEFAULT_ORIGIN,
 } from "../shared/clientConfig";
-import { isSupportedMessagingUrl } from "../platforms/urls";
+import { isSupportedMessagingUrl, isProfileUrl } from "../platforms/urls";
 
 export function App() {
   const [selfName, setSelfName] = useState<string>("");
@@ -20,6 +20,14 @@ export function App() {
   const [backendSaved, setBackendSaved] = useState(false);
   const [backendStatus, setBackendStatus] = useState<string>("");
 
+  // Compose a first message by profile URL (works from anywhere).
+  const [composeUrl, setComposeUrl] = useState<string>("");
+  const [composeIntent, setComposeIntent] = useState<string>("");
+  const [composeBusy, setComposeBusy] = useState(false);
+  const [composeReply, setComposeReply] = useState<string>("");
+  const [composeError, setComposeError] = useState<string>("");
+  const [composeCopied, setComposeCopied] = useState(false);
+
   useEffect(() => {
     getSelfNameSetting().then(setSelfName);
     getBackendSettings().then((s) => {
@@ -27,9 +35,41 @@ export function App() {
       setBackendToken(s.token);
     });
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-      setActiveTabUrl(tab?.url ?? "");
+      const url = tab?.url ?? "";
+      setActiveTabUrl(url);
+      // If the user is already on a profile page, prefill the compose URL.
+      if (url && isProfileUrl(url)) setComposeUrl(url);
     });
   }, []);
+
+  const onCompose = async () => {
+    setComposeError("");
+    setComposeReply("");
+    setComposeBusy(true);
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: "COMPOSE_INTRO",
+        profileUrl: composeUrl.trim(),
+        intent: composeIntent.trim(),
+      });
+      if (resp?.type === "BACKEND_RESPONSE") {
+        setComposeReply(resp.payload?.suggested_reply ?? "");
+      } else {
+        setComposeError(resp?.message ?? "couldn't draft a message");
+      }
+    } catch (e) {
+      setComposeError((e as Error).message);
+    } finally {
+      setComposeBusy(false);
+    }
+  };
+
+  const copyCompose = async () => {
+    if (!composeReply) return;
+    await navigator.clipboard.writeText(composeReply);
+    setComposeCopied(true);
+    setTimeout(() => setComposeCopied(false), 1200);
+  };
 
   const onSave = async () => {
     await setSelfNameSetting(selfName);
@@ -101,6 +141,50 @@ export function App() {
         Open the panel
       </button>
       {openStatus && <div className="pop-substatus">{openStatus}</div>}
+
+      <hr className="pop-divider" />
+
+      <label className="pop-label">
+        Draft a first message <span className="pop-hint">(someone you haven't messaged)</span>
+      </label>
+      <input
+        type="text"
+        value={composeUrl}
+        onChange={(e) => setComposeUrl(e.target.value)}
+        placeholder="https://www.linkedin.com/in/…"
+        className="pop-input"
+        style={{ width: "100%" }}
+      />
+      <input
+        type="text"
+        value={composeIntent}
+        onChange={(e) => setComposeIntent(e.target.value)}
+        placeholder="What's this about? e.g. recruiting for a backend role"
+        className="pop-input"
+        style={{ width: "100%", marginTop: 8 }}
+      />
+      <button
+        onClick={onCompose}
+        disabled={composeBusy || !composeUrl.trim() || !composeIntent.trim()}
+        className="pop-btn pop-btn-block"
+        style={{ marginTop: 8 }}
+      >
+        {composeBusy ? "Drafting…" : "Draft message"}
+      </button>
+      {composeError && <div className="pop-substatus">{composeError}</div>}
+      {composeReply && (
+        <>
+          <textarea
+            value={composeReply}
+            onChange={(e) => setComposeReply(e.target.value)}
+            className="pop-input"
+            style={{ width: "100%", marginTop: 8, minHeight: 96, resize: "vertical" }}
+          />
+          <button onClick={copyCompose} className="pop-btn pop-btn-block" style={{ marginTop: 6 }}>
+            {composeCopied ? "Copied ✓" : "Copy"}
+          </button>
+        </>
+      )}
 
       <hr className="pop-divider" />
 

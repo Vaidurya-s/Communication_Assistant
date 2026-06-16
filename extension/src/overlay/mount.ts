@@ -28,10 +28,39 @@ interface MountedOverlay {
   root: Root;
 }
 
-let mounted: MountedOverlay | null = null;
+/** Cold-open (first-message) context, set when the overlay mounts on a profile page. */
+export interface ColdOpenInfo {
+  contactName: string;
+}
 
-export function mountOverlay(): void {
-  if (mounted) return;
+export interface OverlayProps {
+  coldOpen?: ColdOpenInfo | null;
+}
+
+let mounted: MountedOverlay | null = null;
+let mountedColdOpen: boolean = false;
+
+function renderOverlay(root: Root, props: OverlayProps): void {
+  root.render(
+    createElement(
+      StrictMode,
+      null,
+      createElement(Overlay, { onClose: unmountOverlay, coldOpen: props.coldOpen ?? null }),
+    ),
+  );
+}
+
+export function mountOverlay(props: OverlayProps = {}): void {
+  const isColdOpen = !!props.coldOpen;
+  if (mounted) {
+    // Already mounted. Re-render only if the variant changed (messaging ↔
+    // cold-open) — e.g. an SPA navigation from a thread to a profile page.
+    if (mountedColdOpen !== isColdOpen) {
+      mountedColdOpen = isColdOpen;
+      renderOverlay(mounted.root, props);
+    }
+    return;
+  }
   if (document.getElementById(HOST_ID)) return; // stale host left from a prior content-script run
 
   ensureFonts();
@@ -53,11 +82,10 @@ export function mountOverlay(): void {
   shadow.appendChild(reactContainer);
 
   const root = createRoot(reactContainer);
-  root.render(
-    createElement(StrictMode, null, createElement(Overlay, { onClose: unmountOverlay })),
-  );
+  renderOverlay(root, props);
 
   mounted = { host: host as HTMLDivElement, root };
+  mountedColdOpen = isColdOpen;
 }
 
 export function unmountOverlay(): void {
@@ -65,4 +93,5 @@ export function unmountOverlay(): void {
   mounted.root.unmount();
   mounted.host.remove();
   mounted = null;
+  mountedColdOpen = false;
 }

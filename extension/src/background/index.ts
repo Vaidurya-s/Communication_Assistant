@@ -5,9 +5,10 @@ import {
 } from "../shared/messages";
 import type { ConversationContext } from "../shared/types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
-import { isSupportedMessagingUrl } from "../platforms/urls";
+import { isOverlayUrl, isProfileUrl } from "../platforms/urls";
 import { backendFetch } from "../shared/backend";
 import {
+  getOrFetchProfile,
   getProfileForUrl,
   handleProfileExtracted,
   requestProfileFetch,
@@ -48,8 +49,8 @@ async function pingContentScript(tabId: number): Promise<boolean> {
 
 async function ensureContentScriptInjected(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id) throw new Error("active tab has no id");
-  if (!tab.url || !isSupportedMessagingUrl(tab.url)) {
-    throw new Error("active tab is not a supported messaging page");
+  if (!tab.url || !isOverlayUrl(tab.url)) {
+    throw new Error("active tab is not a supported messaging or profile page");
   }
 
   if (await pingContentScript(tab.id)) return;
@@ -132,6 +133,24 @@ function needsContextExtraction(mode: AnalyzeRequest["mode"]): boolean {
 }
 
 /**
+ * Ask the content script on a profile page for a cold-open (first-message)
+ * context: no conversation, just the contact's freshly-extracted profile.
+ */
+async function requestColdOpenContext(tabId: number): Promise<ConversationContext> {
+  let resp: RuntimeMessage | undefined;
+  try {
+    resp = await chrome.tabs.sendMessage(tabId, { type: "COLD_OPEN_CONTEXT_REQUEST" });
+  } catch (err) {
+    throw new Error(
+      `cannot reach the profile page: ${(err as Error).message}. Reload the tab (Ctrl+R) and try again.`,
+    );
+  }
+  if (resp?.type === "COLD_OPEN_CONTEXT" && resp.payload) return resp.payload;
+  const msg = resp && "message" in resp ? (resp as { message: string }).message : undefined;
+  throw new Error(msg ?? "couldn't read this profile to draft a first message from");
+}
+
+/**
  * Look up any cached profile for this contact and attach it to the context
  * before posting to the backend. We don't block on a fetch — if there's
  * nothing cached yet, the request goes out without enrichment and the next
@@ -151,22 +170,31 @@ async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
 
   try {
     let ctx: ConversationContext;
-    if (needsContextExtraction(req.mode)) {
+    if (req.mode === "cold_open") {
+      // First message: pull the profile-only context from the profile page.
+      // The profile is already attached, so skip the thread-extraction path
+      // and the cache lookup in attachContactProfile.
       await ensureContentScriptInjected(tab);
-      const extracted = await requestExtractFromContent(tab.id);
-      ctx = extracted.context;
+      ctx = await requestColdOpenContext(tab.id);
       state.lastContext = ctx;
-      state.lastDiagnostics = extracted.diagnostics;
-    } else if (state.lastContext) {
-      ctx = state.lastContext;
     } else {
-      await ensureContentScriptInjected(tab);
-      const extracted = await requestExtractFromContent(tab.id);
-      ctx = extracted.context;
-      state.lastContext = ctx;
-      state.lastDiagnostics = extracted.diagnostics;
+      if (needsContextExtraction(req.mode)) {
+        await ensureContentScriptInjected(tab);
+        const extracted = await requestExtractFromContent(tab.id);
+        ctx = extracted.context;
+        state.lastContext = ctx;
+        state.lastDiagnostics = extracted.diagnostics;
+      } else if (state.lastContext) {
+        ctx = state.lastContext;
+      } else {
+        await ensureContentScriptInjected(tab);
+        const extracted = await requestExtractFromContent(tab.id);
+        ctx = extracted.context;
+        state.lastContext = ctx;
+        state.lastDiagnostics = extracted.diagnostics;
+      }
+      ctx = await attachContactProfile(ctx);
     }
-    ctx = await attachContactProfile(ctx);
     const resp = await postToBackend(ctx, req.mode, req.seed_text, req.steer);
     state.lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
@@ -194,6 +222,50 @@ async function handleOpenOverlay(): Promise<RuntimeMessage> {
   }
 }
 
+/**
+ * Compose a first message from the popup, given just a profile URL + intent.
+ * Fetches the profile out-of-band (hidden tab), then runs a cold_open analyze.
+ * Works from any page — no thread, no active LinkedIn tab required.
+ */
+async function handleComposeIntro(req: {
+  profileUrl: string;
+  intent: string;
+}): Promise<RuntimeMessage> {
+  const url = (req.profileUrl || "").trim();
+  if (!isProfileUrl(url)) {
+    return { type: "ERROR", message: "enter a LinkedIn profile URL (linkedin.com/in/…)" };
+  }
+  let profile;
+  try {
+    profile = await getOrFetchProfile(url);
+  } catch (err) {
+    return { type: "ERROR", message: `profile fetch failed: ${(err as Error).message}` };
+  }
+  if (!profile || !profile.name) {
+    return { type: "ERROR", message: "couldn't read that profile — open it in a tab once, then retry" };
+  }
+
+  const ctx: ConversationContext = {
+    platform: "linkedin",
+    conversation_title: profile.name,
+    participants: [{ name: profile.name }],
+    messages: [],
+    current_draft: "",
+    page_metadata: { url, title: profile.name, extracted_at: new Date().toISOString() },
+    contact_profile_url: profile.profileUrl || url,
+    contact_profile: profile,
+  };
+
+  try {
+    const resp = await postToBackend(ctx, "cold_open", "", req.intent ?? "");
+    state.lastContext = ctx;
+    state.lastResponse = resp;
+    return { type: "BACKEND_RESPONSE", payload: resp };
+  } catch (err) {
+    return { type: "ERROR", message: (err as Error).message };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse) => {
   if (msg.type === "ANALYZE_REQUEST") {
     handleAnalyze(msg).then(sendResponse);
@@ -202,6 +274,11 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse)
 
   if (msg.type === "OPEN_OVERLAY") {
     handleOpenOverlay().then(sendResponse);
+    return true;
+  }
+
+  if (msg.type === "COMPOSE_INTRO") {
+    handleComposeIntro(msg).then(sendResponse);
     return true;
   }
 

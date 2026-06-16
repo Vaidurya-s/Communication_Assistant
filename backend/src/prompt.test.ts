@@ -57,6 +57,35 @@ describe("buildPrompt", () => {
     expect(r.instruction).toContain("make it warmer");
   });
 
+  it("cold_open: builds a first-message prompt grounded in the contact_profile with no messages", () => {
+    const r = buildPrompt(
+      base({
+        mode: "cold_open",
+        ctx: {
+          conversation_title: "Maya Chen",
+          messages: [],
+          current_draft: "",
+          contact_profile: {
+            name: "Maya Chen",
+            role: "Staff Engineer",
+            company: "Acme",
+            about: "I work on distributed systems.",
+          },
+        },
+        steer: "recruiting for a backend role",
+      }),
+    );
+    expect(r.resolvedMode).toBe("cold_open");
+    // First-message instruction, with the user's intent appended as trusted.
+    expect(r.instruction).toContain("first-contact message");
+    expect(r.instruction).toContain("ADDITIONAL INSTRUCTION FROM ME");
+    expect(r.instruction).toContain("recruiting for a backend role");
+    // Profile is fenced as untrusted data; transcript is empty (no messages).
+    expect(r.context).toContain("<UNTRUSTED_CONVERSATION>");
+    expect(r.context).toContain("Staff Engineer");
+    expect(r.transcript).toBe("");
+  });
+
   it("builds a ME/THEM transcript capped at 30 messages", () => {
     const many = Array.from({ length: 40 }, (_, i) => ({
       sender: "Maya Chen",

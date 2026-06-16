@@ -2,7 +2,7 @@ import type { ConversationContext } from "./types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
 import type { ContactProfile } from "./profile";
 
-export type Mode = "suggest" | "continue_draft" | "shorter" | "longer" | "follow_up";
+export type Mode = "suggest" | "continue_draft" | "shorter" | "longer" | "follow_up" | "cold_open";
 
 export interface AnalyzeRequest {
   type: "ANALYZE_REQUEST";
@@ -42,12 +42,22 @@ export type RuntimeMessage =
       lastDiagnostics: ExtractionDiagnostics | null;
       lastResponse: BackendResponse | null;
     }
+  /** Background → content script (on a profile page): build a cold-open context. */
+  | { type: "COLD_OPEN_CONTEXT_REQUEST" }
+  /** Content script → background: synthetic context for a first message (no history). */
+  | { type: "COLD_OPEN_CONTEXT"; payload: ConversationContext | null }
   /** Content script (on a thread) → background: kick off profile fetch for this URL. */
   | { type: "PROFILE_FETCH_REQUEST"; profileUrl: string }
   /** Content script (on a profile page) → background: extracted payload. */
   | { type: "PROFILE_EXTRACTED"; payload: ContactProfile }
   /** Popup → background: ensure the content script is injected and mount the overlay. */
   | { type: "OPEN_OVERLAY" }
+  /**
+   * Popup → background: draft a first message to a contact by profile URL,
+   * from anywhere. Background fetches the profile (hidden tab) and runs a
+   * cold_open analyze; the reply comes back as BACKEND_RESPONSE.
+   */
+  | { type: "COMPOSE_INTRO"; profileUrl: string; intent: string }
   /** Background → content script: (re-)mount the overlay on demand. */
   | { type: "SHOW_OVERLAY" }
   /** Content script → caller: the overlay is now mounted. */

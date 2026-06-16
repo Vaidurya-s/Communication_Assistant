@@ -19,7 +19,7 @@ import {
   setCachedProfile,
   type ContactProfile,
 } from "../shared/profile";
-import { isProfileUrl } from "../platforms/urls";
+import { isProfileUrl, ENRICHMENT_HASH } from "../platforms/urls";
 
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -34,6 +34,28 @@ export async function getProfileForUrl(profileUrl: string): Promise<ContactProfi
   const url = canonicalProfileUrl(profileUrl);
   const cached = await getCachedProfile(url);
   return cached;
+}
+
+/**
+ * Cache-or-fetch a profile and WAIT for it. Returns the cached profile if
+ * fresh; otherwise kicks the hidden-tab fetch and polls the cache (where
+ * handleProfileExtracted deposits the result) until it lands or times out.
+ * Used by the popup's compose-intro flow, which has no thread to ride on.
+ */
+export async function getOrFetchProfile(profileUrl: string): Promise<ContactProfile | null> {
+  const url = canonicalProfileUrl(profileUrl);
+  const cached = await getCachedProfile(url);
+  if (cached) return cached;
+
+  await requestProfileFetch(url);
+
+  const deadline = Date.now() + FETCH_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 400));
+    const p = await getCachedProfile(url);
+    if (p) return p;
+  }
+  return null;
 }
 
 /**
@@ -53,9 +75,13 @@ export async function requestProfileFetch(profileUrl: string): Promise<void> {
   if (existing && Date.now() - existing.startedAt < FETCH_TIMEOUT_MS) return;
 
   // Open hidden tab. The content script auto-injects (matches linkedin.com/*).
+  // Mark it with ENRICHMENT_HASH so the content script knows NOT to mount the
+  // cold-open overlay here — this tab exists only to scrape the profile. The
+  // hash doesn't affect extraction or the cache key (both use the canonical,
+  // hash-free URL).
   let tab: chrome.tabs.Tab;
   try {
-    tab = await chrome.tabs.create({ url, active: false });
+    tab = await chrome.tabs.create({ url: url + ENRICHMENT_HASH, active: false });
   } catch (err) {
     console.warn("[profile] tab open failed:", (err as Error).message);
     return;

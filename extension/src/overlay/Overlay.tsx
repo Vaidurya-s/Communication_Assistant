@@ -17,6 +17,7 @@ import {
 } from "../content/snapshot";
 import { exportSnapshot as exportSnapshotApi, type SnapshotExportResult } from "./snapshotApi";
 import { backendFetch } from "../shared/backend";
+import type { ColdOpenInfo } from "./mount";
 
 const POSITION_KEY = "overlayPosition";
 const COLLAPSED_KEY = "overlayCollapsed";
@@ -133,9 +134,11 @@ type BackendHealth = "checking" | "online" | "offline";
 
 interface Props {
   onClose: () => void;
+  /** When set, the overlay renders its cold-open (first-message) variant. */
+  coldOpen?: ColdOpenInfo | null;
 }
 
-export function Overlay({ onClose }: Props) {
+export function Overlay({ onClose, coldOpen }: Props) {
   const [position, setPosition] = useState<Position>(DEFAULT_POSITION);
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [preview, setPreview] = useState<string>("");
@@ -165,6 +168,8 @@ export function Overlay({ onClose }: Props) {
   const [nameInput, setNameInput] = useState<string>("");
   const [nameSaved, setNameSaved] = useState(false);
   const [steer, setSteer] = useState<string>("");
+  // Cold-open only: the user's reason for reaching out ("What's this about?").
+  const [intent, setIntent] = useState<string>("");
   const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
   const [showFeedbackNote, setShowFeedbackNote] = useState(false);
   const [feedbackNote, setFeedbackNote] = useState("");
@@ -306,6 +311,20 @@ export function Overlay({ onClose }: Props) {
     void analyze("suggest", { steerOverride: tone.steer });
   };
 
+  // Cold-open: draft a first message from the profile + the user's intent
+  // (carried as the trusted steer). Intent is required by the button below.
+  const draftIntro = useCallback(() => {
+    void analyze("cold_open", { steerOverride: intent.trim() || undefined });
+  }, [analyze, intent]);
+
+  const regenerateIntro = useCallback(() => {
+    const base = intent.trim() ? intent.trim() + ". " : "";
+    void analyze("cold_open", {
+      steerOverride:
+        base + "Give a noticeably different opener — change the angle and the opening line.",
+    });
+  }, [analyze, intent]);
+
   const copyPreview = useCallback(async () => {
     if (!preview) return;
     await navigator.clipboard.writeText(preview);
@@ -313,9 +332,11 @@ export function Overlay({ onClose }: Props) {
     setTimeout(() => setCopied(false), 1200);
   }, [preview]);
 
+  const feedbackContact = coldOpen?.contactName || threadInfo?.title;
+
   const onThumbUp = async () => {
     setFeedbackGiven("up");
-    await postFeedback({ rating: "up", contact: threadInfo?.title, suggestion: preview });
+    await postFeedback({ rating: "up", contact: feedbackContact, suggestion: preview });
   };
 
   const onThumbDown = () => {
@@ -328,7 +349,7 @@ export function Overlay({ onClose }: Props) {
     await postFeedback({
       rating: "down",
       note: feedbackNote.trim() || undefined,
-      contact: threadInfo?.title,
+      contact: feedbackContact,
       suggestion: preview,
     });
     setFeedbackNote("");
@@ -376,9 +397,11 @@ export function Overlay({ onClose }: Props) {
       switch (key) {
         case "s":
           e.preventDefault();
-          void analyze("suggest");
+          if (coldOpen) draftIntro();
+          else void analyze("suggest");
           return;
         case "f":
+          if (coldOpen) return;
           e.preventDefault();
           void analyze("follow_up");
           return;
@@ -406,7 +429,7 @@ export function Overlay({ onClose }: Props) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [analyze, copyPreview, regenerate, preview]);
+  }, [analyze, copyPreview, regenerate, preview, coldOpen, draftIntro]);
 
   const loadingMode = status.kind === "loading" ? status.mode : null;
   const isLoading = status.kind === "loading";
@@ -472,6 +495,119 @@ export function Overlay({ onClose }: Props) {
             </div>
           )}
 
+          {coldOpen && (
+            <>
+              <div className="ca-status">
+                <span className="ca-muted">First message to</span>{" "}
+                <strong>{coldOpen.contactName || "this person"}</strong>
+              </div>
+
+              <div className="ca-memory">
+                <div className="ca-card-title">What's this about?</div>
+                <input
+                  value={intent}
+                  onChange={(e) => setIntent(e.target.value)}
+                  placeholder="e.g. recruiting for a backend role, loved your talk on…"
+                  className="ca-input"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && intent.trim()) {
+                      e.preventDefault();
+                      draftIntro();
+                    }
+                  }}
+                />
+                <div className="ca-row">
+                  <ActionButton
+                    label="Draft intro"
+                    shortcut="Alt+S"
+                    onClick={draftIntro}
+                    loading={loadingMode === "cold_open"}
+                    disabled={!intent.trim()}
+                  />
+                </div>
+              </div>
+
+              <textarea
+                ref={previewRef}
+                value={preview}
+                onChange={(e) => setPreview(e.target.value)}
+                placeholder="Your first message will appear here. Edit before copying."
+                className="ca-preview"
+                rows={6}
+              />
+
+              {preview && status.kind !== "loading" && (
+                <div className="ca-feedback">
+                  {feedbackGiven ? (
+                    <span className="ca-ok">Thanks — noted for your next profile refresh.</span>
+                  ) : showFeedbackNote ? (
+                    <div className="ca-feedback-note">
+                      <input
+                        value={feedbackNote}
+                        onChange={(e) => setFeedbackNote(e.target.value)}
+                        placeholder="What was off? (optional)"
+                        className="ca-input"
+                        autoFocus
+                      />
+                      <button onClick={submitThumbDown} className="ca-btn ca-btn-primary">
+                        Send
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="ca-muted">Sound like you?</span>
+                      <button onClick={onThumbUp} className="ca-thumb" title="Yes — sounds like me">
+                        👍
+                      </button>
+                      <button onClick={onThumbDown} className="ca-thumb" title="Not quite — tell it why">
+                        👎
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="ca-row">
+                <button onClick={copyPreview} disabled={!preview} className="ca-btn ca-btn-primary" title="Copy (Alt+C)">
+                  {copied ? "Copied ✓" : "Copy"}
+                </button>
+                <button onClick={regenerateIntro} disabled={!preview || isLoading} className="ca-btn ca-btn-ghost" title="Regenerate (Alt+R)">
+                  ↻ Regenerate
+                </button>
+                <button onClick={() => setPreview("")} disabled={!preview} className="ca-btn ca-btn-ghost">
+                  Clear
+                </button>
+              </div>
+              <div className="ca-row">
+                <ActionButton
+                  label="Shorter"
+                  shortcut="Alt+H"
+                  onClick={() => analyze("shorter")}
+                  loading={loadingMode === "shorter"}
+                  disabled={!preview}
+                />
+                <ActionButton
+                  label="Longer"
+                  shortcut="Alt+L"
+                  onClick={() => analyze("longer")}
+                  loading={loadingMode === "longer"}
+                  disabled={!preview}
+                />
+              </div>
+
+              {backendHealth === "online" && !health?.voiceProfileOk && (
+                <div className="ca-strategy">
+                  💡 Add your voice profile (see SETUP.md → <code>npm run init-voice</code>) so this sounds like you.
+                </div>
+              )}
+
+              {status.kind === "error" && <div className="ca-error">{status.message}</div>}
+            </>
+          )}
+
+          {!coldOpen && (
+          <>
           {showChecklist && (
             <div className="ca-checklist">
               <div className="ca-card-title">Finish setup</div>
@@ -739,6 +875,8 @@ export function Overlay({ onClose }: Props) {
                 {snapshotButtonLabel("Capture snapshot")}
               </button>
             </>
+          )}
+          </>
           )}
         </div>
       )}

@@ -38,9 +38,21 @@ export function isOnProfilePage(): boolean {
 }
 
 function readName(): string {
-  // The h1 on a profile page is overwhelmingly the contact name.
+  // Legacy layout: the h1 is the contact name.
   const h1 = document.querySelector("main h1") ?? document.querySelector("h1");
-  return text(h1);
+  const fromH1 = text(h1);
+  if (fromH1) return fromH1;
+
+  // Newer LinkedIn layouts drop the h1 and use obfuscated class names, so
+  // class/tag selectors aren't reliable. The page <title> is layout-proof:
+  // "<Name> | LinkedIn", sometimes prefixed with a "(3) " notification count.
+  const title = (document.title || "").replace(/^\(\d+\)\s*/, "").split("|")[0].trim();
+  if (title && !/^linkedin$/i.test(title)) return title;
+
+  // Last resort: og:title ("<Name> | LinkedIn" or "<Name> - <headline> ...").
+  const og = document.querySelector('meta[property="og:title"]')?.getAttribute("content") ?? "";
+  const ogName = og.split("|")[0].split(" - ")[0].trim();
+  return /linkedin/i.test(ogName) ? "" : ogName;
 }
 
 function readHeadline(): string {
@@ -76,16 +88,27 @@ function readLocation(): string {
  * #education, #skills). The visible content lives in a sibling/cousin
  * container. Walk up to the section root, then read its body.
  */
-function getSectionRoot(anchorId: string): Element | null {
-  const anchor = document.getElementById(anchorId);
-  if (!anchor) return null;
-  // Walk up to find the <section> ancestor.
-  let cur: Element | null = anchor;
-  for (let i = 0; i < 6 && cur; i++) {
+function climbToSection(start: Element, maxHops: number): Element | null {
+  let cur: Element | null = start;
+  for (let i = 0; i < maxHops && cur; i++) {
     if (cur.tagName === "SECTION") return cur;
     cur = cur.parentElement;
   }
-  return anchor.parentElement;
+  return start.parentElement;
+}
+
+function getSectionRoot(anchorId: string): Element | null {
+  // Legacy layout anchors each section with an id (#about, #experience, …).
+  const anchor = document.getElementById(anchorId);
+  if (anchor) return climbToSection(anchor, 6);
+
+  // Newer layout has no id anchors — sections are headed by an <h2>/<h3> whose
+  // text is the section name ("About", "Experience"). Find that, climb to it.
+  const label = anchorId.toLowerCase();
+  const heading = Array.from(document.querySelectorAll("main h2, main h3, section h2, section h3")).find(
+    (el) => text(el).toLowerCase() === label,
+  );
+  return heading ? climbToSection(heading, 8) : null;
 }
 
 function readAbout(): string {
@@ -219,10 +242,9 @@ export function waitForProfileReady(timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     const start = Date.now();
     const check = () => {
-      const haveName = !!text(document.querySelector("h1"));
+      const haveName = !!readName();
       const haveSection =
-        !!document.getElementById("about") ||
-        !!document.getElementById("experience");
+        !!getSectionRoot("about") || !!getSectionRoot("experience");
       if (haveName && haveSection) {
         resolve(true);
         return;

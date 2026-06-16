@@ -46,6 +46,7 @@ const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "shorter",
   "longer",
   "follow_up",
+  "cold_open",
 ]);
 
 const app = express();
@@ -157,6 +158,14 @@ app.post("/analyze", async (req: Request, res: Response) => {
   if (mode === "shorter" || mode === "longer") {
     if (!seedText.trim()) {
       res.status(400).json({ error: `mode '${mode}' requires seed_text` });
+      return;
+    }
+  } else if (mode === "cold_open") {
+    // A first message legitimately has no conversation — the contact's profile
+    // is the only grounding, so require it instead of messages/draft.
+    const hasProfile = !!ctx?.contact_profile && typeof ctx.contact_profile === "object";
+    if (!hasProfile) {
+      res.status(400).json({ error: "mode 'cold_open' requires a contact_profile to draft from" });
       return;
     }
   } else if (messageCount === 0 && draftLen === 0) {

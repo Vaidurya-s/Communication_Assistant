@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isSupportedMessagingUrl, isProfileUrl } from "./urls";
+import { isSupportedMessagingUrl, isProfileUrl, isOverlayUrl } from "./urls";
 
 describe("isSupportedMessagingUrl", () => {
   it("recognises LinkedIn messaging URLs", () => {
@@ -39,5 +39,19 @@ describe("isProfileUrl", () => {
 
   it("treats Gmail as having no profile page", () => {
     expect(isProfileUrl("https://mail.google.com/mail/u/0/#inbox/FMfcgz")).toBe(false);
+  });
+});
+
+describe("isOverlayUrl", () => {
+  it("is true for both messaging surfaces and profile pages", () => {
+    expect(isOverlayUrl("https://www.linkedin.com/messaging/thread/2-abc/")).toBe(true);
+    expect(isOverlayUrl("https://www.linkedin.com/in/maya-chen/")).toBe(true);
+    expect(isOverlayUrl("https://mail.google.com/mail/u/0/#inbox/FMfcgz")).toBe(true);
+  });
+
+  it("is false where the overlay can't mount", () => {
+    expect(isOverlayUrl("https://www.linkedin.com/feed/")).toBe(false);
+    expect(isOverlayUrl("https://example.com/")).toBe(false);
+    expect(isOverlayUrl("not a url")).toBe(false);
   });
 });

@@ -1,9 +1,12 @@
 import type { RuntimeMessage } from "../shared/messages";
-import type { ExtractionResult } from "../shared/types";
+import type { ConversationContext, ExtractionResult } from "../shared/types";
+import type { ContactProfile } from "../shared/profile";
 import { messagingExtractor, profileExtractor } from "../platforms/registry";
+import { ENRICHMENT_HASH } from "../platforms/urls";
 import { getCurrentExtractor, setCurrentExtractor } from "./currentPlatform";
 import { mountOverlay, unmountOverlay } from "../overlay/mount";
 import { armAnomalySnapshot, clearArmedSnapshot } from "./snapshot";
+import type { PlatformExtractor } from "../platforms/types";
 
 let observer: MutationObserver | null = null;
 let installRetryHandle: number | null = null;
@@ -76,6 +79,58 @@ function maybeKickProfileFetch(): void {
   }, 1500);
 }
 
+/**
+ * Build a synthetic conversation context for a FIRST message — no history. The
+ * contact's profile is the only grounding; the backend drafts a cold-open from
+ * it plus the user's intent (sent as `steer`). title = the contact's name so
+ * the contact gets remembered under the same key a later thread would use.
+ */
+function buildColdOpenContext(profile: ContactProfile): ConversationContext {
+  const ext = getCurrentExtractor();
+  return {
+    platform: ext?.platform ?? "linkedin",
+    conversation_title: profile.name,
+    participants: profile.name ? [{ name: profile.name }] : [],
+    messages: [],
+    current_draft: "",
+    page_metadata: {
+      url: window.location.href,
+      title: document.title,
+      extracted_at: new Date().toISOString(),
+    },
+    contact_profile_url: profile.profileUrl || window.location.href,
+    contact_profile: profile,
+  };
+}
+
+/** Read the profile this page is showing and return a cold-open context, or null. */
+async function readColdOpenContext(prof: PlatformExtractor): Promise<ConversationContext | null> {
+  await prof.waitForProfileReady(8000);
+  const profile = prof.extractProfile();
+  if (!profile.name) return null;
+  setCurrentExtractor(prof);
+  return buildColdOpenContext(profile);
+}
+
+/**
+ * Profile-page overlay: when the user is viewing a contact's profile, mount the
+ * overlay in its cold-open variant so they can draft a first message. Works in
+ * background tabs too (no visibility gate) — only the enrichment fetcher's
+ * hash-marked throwaway tabs are excluded, by the caller below.
+ */
+async function mountColdOpenOverlay(prof: PlatformExtractor): Promise<void> {
+  try {
+    const ctx = await readColdOpenContext(prof);
+    if (!ctx) {
+      unmountOverlay();
+      return;
+    }
+    mountOverlay({ coldOpen: { contactName: ctx.conversation_title } });
+  } catch {
+    unmountOverlay();
+  }
+}
+
 function bootForCurrentRoute(): void {
   if (observer) {
     observer.disconnect();
@@ -86,15 +141,23 @@ function bootForCurrentRoute(): void {
     installRetryHandle = null;
   }
   const ext = messagingExtractor(window.location);
-  if (!ext) {
-    setCurrentExtractor(null);
-    unmountOverlay();
+  if (ext) {
+    setCurrentExtractor(ext);
+    tryInstallObserver();
+    mountOverlay();
+    maybeKickProfileFetch();
     return;
   }
-  setCurrentExtractor(ext);
-  tryInstallObserver();
-  mountOverlay();
-  maybeKickProfileFetch();
+  // Not a messaging surface. If it's a profile page the user is looking at,
+  // offer a cold-open first-message draft instead. Skip the enrichment fetcher's
+  // hash-marked tabs — those are opened hidden only to scrape the profile.
+  const prof = profileExtractor(window.location);
+  if (prof && window.location.hash !== ENRICHMENT_HASH) {
+    void mountColdOpenOverlay(prof);
+    return;
+  }
+  setCurrentExtractor(null);
+  unmountOverlay();
 }
 
 chrome.runtime.onMessage.addListener(
@@ -107,15 +170,34 @@ chrome.runtime.onMessage.addListener(
     if (msg?.type === "SHOW_OVERLAY") {
       // Re-evaluate the route and mount. Handles a panel closed with ×, a tab
       // that loaded before the extension, or a restored session where the
-      // initial boot missed.
+      // initial boot missed. Works on both messaging surfaces and profile
+      // pages (the latter mounts the cold-open variant).
       bootForCurrentRoute();
-      const onRoute = !!messagingExtractor(window.location);
+      const onRoute =
+        !!messagingExtractor(window.location) || !!profileExtractor(window.location);
       sendResponse(
         onRoute
           ? { type: "OVERLAY_OPENED" }
-          : { type: "ERROR", message: "not a supported messaging page" },
+          : { type: "ERROR", message: "open a LinkedIn/Gmail thread or a LinkedIn profile" },
       );
       return false;
+    }
+
+    if (msg?.type === "COLD_OPEN_CONTEXT_REQUEST") {
+      (async () => {
+        const prof = profileExtractor(window.location);
+        if (!prof) {
+          sendResponse({ type: "COLD_OPEN_CONTEXT", payload: null });
+          return;
+        }
+        try {
+          const ctx = await readColdOpenContext(prof);
+          sendResponse({ type: "COLD_OPEN_CONTEXT", payload: ctx });
+        } catch (err) {
+          sendResponse({ type: "ERROR", message: (err as Error).message });
+        }
+      })();
+      return true; // async response
     }
 
     if (msg?.type !== "EXTRACT_REQUEST") return;
