@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { getSelfNameSetting, setSelfNameSetting } from "../shared/storage";
+import {
+  getSelfNameSetting,
+  setSelfNameSetting,
+  getEditMiningSetting,
+  setEditMiningSetting,
+} from "../shared/storage";
 import {
   getBackendSettings,
   setBackendSettings,
@@ -12,6 +17,7 @@ import { isSupportedMessagingUrl, isProfileUrl } from "../platforms/urls";
 export function App() {
   const [selfName, setSelfName] = useState<string>("");
   const [saved, setSaved] = useState(false);
+  const [editMining, setEditMining] = useState(false);
   const [activeTabUrl, setActiveTabUrl] = useState<string>("");
   const [openStatus, setOpenStatus] = useState<string>("");
 
@@ -35,6 +41,7 @@ export function App() {
 
   useEffect(() => {
     getSelfNameSetting().then(setSelfName);
+    getEditMiningSetting().then(setEditMining);
     getBackendSettings().then((s) => {
       setBackendOrigin(s.origin);
       setBackendToken(s.token);
@@ -251,6 +258,22 @@ export function App() {
           {saved ? "Saved ✓" : "Save"}
         </button>
       </div>
+
+      <label className="pop-check" style={{ marginTop: 10 }}>
+        <input
+          type="checkbox"
+          checked={editMining}
+          onChange={async (e) => {
+            const on = e.target.checked;
+            setEditMining(on);
+            await setEditMiningSetting(on);
+          }}
+        />
+        <span>
+          Learn from my edits{" "}
+          <span className="pop-hint">(on-device; off by default)</span>
+        </span>
+      </label>
 
       <hr className="pop-divider" />
 

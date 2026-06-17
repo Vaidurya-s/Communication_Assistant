@@ -194,6 +194,7 @@ async function loadOverview() {
     card("Enriched profiles", stats.enriched_profiles, "from LinkedIn", "contacts"),
     card("Strategy reads", stats.strategies, "logged insights", "activity"),
     card("Feedback given", stats.feedback, "👍 / 👎", "voice"),
+    card("Edits learned", stats.edits || 0, "from your rewrites", "voice"),
   ].join("");
   $$("#statCards .card[data-goto]").forEach((c) => c.addEventListener("click", () => show(c.dataset.goto)));
   animateCounts();

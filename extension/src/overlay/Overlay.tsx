@@ -15,7 +15,7 @@ import {
   type ExtractionDiagnostics,
 } from "../content/diagnostics";
 import { getDebugMode, setDebugMode } from "../shared/debug";
-import { getSelfNameSetting, setSelfNameSetting } from "../shared/storage";
+import { getSelfNameSetting, setSelfNameSetting, getEditMiningSetting } from "../shared/storage";
 import {
   captureSnapshot,
   clearArmedSnapshot,
@@ -199,6 +199,10 @@ export function Overlay({ onClose, coldOpen }: Props) {
   const [lintTerms, setLintTerms] = useState<string[]>([]);
 
   const previewRef = useRef<HTMLTextAreaElement>(null);
+  // Edit-mining (opt-in): the model's last suggestion + whether capture is on,
+  // in refs so the copy handler reads them without re-subscribing.
+  const originalSuggestionRef = useRef("");
+  const editMiningRef = useRef(false);
 
   const refreshHealth = useCallback(async () => {
     setBackendHealth("checking");
@@ -217,6 +221,7 @@ export function Overlay({ onClose, coldOpen }: Props) {
     });
 
     getDebugMode().then(setDebugModeState);
+    getEditMiningSetting().then((v) => (editMiningRef.current = v));
     getSelfNameSetting().then((n) => {
       setSelfName(n);
       setNameInput(n);
@@ -238,7 +243,10 @@ export function Overlay({ onClose, coldOpen }: Props) {
         };
         setThreadInfo(info);
         if (resp.lastDiagnostics) setDiagnostics(resp.lastDiagnostics);
-        if (resp.lastResponse?.suggested_reply) setPreview(resp.lastResponse.suggested_reply);
+        if (resp.lastResponse?.suggested_reply) {
+          setPreview(resp.lastResponse.suggested_reply);
+          originalSuggestionRef.current = resp.lastResponse.suggested_reply;
+        }
         if (resp.lastResponse?.memory_proposal) setMemoryProposal(resp.lastResponse.memory_proposal);
         if (resp.lastResponse?.strategy) setStrategy(resp.lastResponse.strategy);
         const c = await fetchContact(info.title);
@@ -367,6 +375,7 @@ export function Overlay({ onClose, coldOpen }: Props) {
           } else if (ev.type === "reply_done") {
             acc = ev.suggested_reply ?? acc;
             setPreview(acc);
+            originalSuggestionRef.current = acc; // baseline for edit-mining
             setBackendHealth("online");
           } else if (ev.type === "insight") {
             setMemoryProposal(ev.memory_proposal ?? null);
@@ -428,7 +437,24 @@ export function Overlay({ onClose, coldOpen }: Props) {
     await navigator.clipboard.writeText(preview);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
-  }, [preview]);
+
+    // Edit-mining (opt-in): if the user changed the suggestion before copying,
+    // capture the diff as a candidate correction. Skip trivial whitespace-only
+    // edits; the backend also rejects an identical before/after.
+    const original = originalSuggestionRef.current;
+    const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+    if (editMiningRef.current && original && preview.trim() && norm(original) !== norm(preview)) {
+      void backendFetch(`/voice/edits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          before: original,
+          after: preview,
+          contact: coldOpen?.contactName || threadInfo?.title,
+        }),
+      }).catch(() => {});
+    }
+  }, [preview, coldOpen, threadInfo]);
 
   const feedbackContact = coldOpen?.contactName || threadInfo?.title;
 

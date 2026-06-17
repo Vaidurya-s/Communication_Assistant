@@ -36,6 +36,7 @@ import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
 import { appendFeedback, readFeedback, readFeedbackEntries } from "./feedback.js";
+import { appendEdit, editsAsCorrections, readEditEntries } from "./editMining.js";
 import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
 import { exportTenant, purgeTenant } from "./tenantData.js";
@@ -449,6 +450,31 @@ app.post("/feedback", (req: Request, res: Response) => {
   }
 });
 
+// Edit-mining capture (opt-in, set in the popup): the overlay POSTs the diff
+// between a suggested draft and what the user actually copied. Stored as a
+// candidate correction that `Apply corrections` later folds into the profile.
+app.post("/voice/edits", (req: Request, res: Response) => {
+  const { before, after, contact } = req.body ?? {};
+  if (typeof before !== "string" || typeof after !== "string" || !before.trim() || !after.trim()) {
+    res.status(400).json({ error: "before and after (non-empty strings) required" });
+    return;
+  }
+  if (before.trim() === after.trim()) {
+    res.status(400).json({ error: "before and after are identical — nothing to learn" });
+    return;
+  }
+  try {
+    appendEdit(
+      tenant(req),
+      { before, after, contact: typeof contact === "string" ? contact : undefined },
+      new Date().toISOString(),
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // Voice lint (deterministic, no LLM): flag where a draft uses words the user's
 // own voice profile says to avoid. The overlay calls this as the user reads/edits
 // a draft and surfaces hits as a gentle heads-up.
@@ -517,6 +543,7 @@ app.get("/stats", (req: Request, res: Response) => {
       ...stats,
       snapshots: listSnapshots(tenant(req)).length,
       feedback: readFeedbackEntries(tenant(req)).length,
+      edits: readEditEntries(tenant(req)).length,
       provider: getProviderName(),
       voice_profile_chars: voiceChars,
       voice_profile_ok: voiceChars > 40,
@@ -795,12 +822,17 @@ app.get("/voice/strength", (req: Request, res: Response) => {
 app.post("/voice/feedback/apply", async (req: Request, res: Response) => {
   const t = tenant(req);
   const feedback = readFeedback(t);
-  if (!feedback.trim()) {
-    res.status(400).json({ error: "no feedback to apply yet — use 👍/👎 in the overlay first" });
+  const edits = editsAsCorrections(t);
+  if (!feedback.trim() && !edits.trim()) {
+    res.status(400).json({
+      error: "no corrections to apply yet — use 👍/👎 in the overlay, or enable edit-mining",
+    });
     return;
   }
+  // Combine 👍/👎 notes and captured hand-edits into one corrections block.
+  const corrections = [feedback, edits].filter((s) => s.trim()).join("\n\n");
   try {
-    const markdown = await distill(t, { feedback });
+    const markdown = await distill(t, { feedback: corrections });
     writeFileSync(voiceProfilePath(t), markdown, "utf-8");
     voiceCache.delete(t);
     res.json({ ok: true, chars: markdown.length });
