@@ -577,7 +577,10 @@ async function loadVoice() {
     </div>
 
     <div class="panel">
-      <h2>Feedback history (${fb.length})</h2>
+      <div class="panel-head">
+        <h2>Feedback history (${fb.length})</h2>
+        ${fb.length ? `<button class="btn ghost small" id="applyFeedbackBtn">Apply corrections to my profile</button>` : ""}
+      </div>
       ${fbHtml}
     </div>`;
 
@@ -617,6 +620,21 @@ async function loadVoice() {
       } catch (err) { toast(err.message, "err"); }
       finally { btn.disabled = false; btn.textContent = prev; }
     });
+  });
+
+  // Apply 👍/👎 corrections to the profile (re-distills with feedback folded in).
+  const applyFbBtn = $("#applyFeedbackBtn");
+  if (applyFbBtn) applyFbBtn.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "Applying…";
+    try {
+      const r = await api("/voice/feedback/apply", { method: "POST" });
+      toast(`Corrections applied — profile rewritten (${(r.chars || 0).toLocaleString()} chars)`);
+      loadVoice();
+    } catch (err) { toast(err.message, "err"); }
+    finally { btn.disabled = false; btn.textContent = prev; }
   });
 
   // Compile.

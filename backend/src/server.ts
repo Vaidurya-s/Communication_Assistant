@@ -35,7 +35,7 @@ import type { IncomingContactProfile } from "./prompt.js";
 import { generateInsight } from "./insight.js";
 import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
-import { appendFeedback, readFeedbackEntries } from "./feedback.js";
+import { appendFeedback, readFeedback, readFeedbackEntries } from "./feedback.js";
 import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
 import { exportTenant, purgeTenant } from "./tenantData.js";
@@ -646,6 +646,29 @@ app.get("/voice/strength", (req: Request, res: Response) => {
       feedbackCount: readFeedbackEntries(t).length,
     });
     res.json(strength);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Apply the 👍/👎 corrections collected in feedback.md to the profile in one
+ * click (Phase 5 feedback loop). Re-distills from the corpus with the
+ * corrections folded in (they override the samples where they conflict), writes
+ * the runtime profile, and busts the cache.
+ */
+app.post("/voice/feedback/apply", async (req: Request, res: Response) => {
+  const t = tenant(req);
+  const feedback = readFeedback(t);
+  if (!feedback.trim()) {
+    res.status(400).json({ error: "no feedback to apply yet — use 👍/👎 in the overlay first" });
+    return;
+  }
+  try {
+    const markdown = await distill(t, { feedback });
+    writeFileSync(voiceProfilePath(t), markdown, "utf-8");
+    voiceCache.delete(t);
+    res.json({ ok: true, chars: markdown.length });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
