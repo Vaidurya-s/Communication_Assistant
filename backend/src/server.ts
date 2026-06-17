@@ -138,6 +138,7 @@ app.get("/health", (req: Request, res: Response) => {
     voiceProfileOk: voiceChars > 40,
     provider: getProviderName(),
     requireAuth: getConfig().requireAuth,
+    prefetch: getConfig().prefetch,
   });
 });
 

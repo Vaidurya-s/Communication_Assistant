@@ -1,6 +1,14 @@
 # LLM latency & "keep it primed" — performance plan
 
-**Status:** planning. Execute phase by phase. No code yet.
+**Status:** Phases A–E shipped. Phase A (decouple insight), B (native Anthropic
+provider + caching, `staticPrefix`/`variable` split), C (SSE streaming + overlay
+Port relay), D (cache warm-up: `buildStaticPrefix` + `provider.warm` + `/warm` +
+boot/overlay prewarm), and E (speculative prefetch behind `COMMS_PREFETCH`, off by
+default) are all in. **Deferred:** §3c gemini-cli plan-mode drop — needs the mode
+plumbed to the provider plus gemini-CLI flag semantics that can't be verified
+without risking the working free fallback. Live token-streaming / caching / prefetch
+only activate with an HTTP provider key (the default gemini-cli has no streaming or
+cache, so those paths fall back gracefully to a single JSON batch).
 **Decisions captured (2026-06-17):** fast HTTP API the default for drafting, with
 prompt caching on the static voice prefix + streaming to the overlay; keep
 `gemini-cli` as the free/offline fallback. All four latency fixes are in scope:

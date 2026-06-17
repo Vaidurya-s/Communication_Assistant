@@ -79,6 +79,13 @@ export interface Config {
   corsOrigins: string;
   /** Per-tenant requests/minute on the LLM route; 0 (default) = unlimited. */
   rateLimitPerMin: number;
+  /**
+   * Speculative prefetch: when on, the extension pre-fires a `suggest` draft on
+   * thread open so the first click is instant. Off by default — it spends tokens
+   * on drafts the user may never request, and only pays off on a fast HTTP
+   * provider (the extension also refuses to prefetch onto the slow gemini-cli).
+   */
+  prefetch: boolean;
 }
 
 let cached: Config | null = null;
@@ -101,6 +108,7 @@ export function getConfig(): Config {
     requireAuth: parseBool(process.env.COMMS_REQUIRE_AUTH),
     corsOrigins: process.env.COMMS_CORS_ORIGINS ?? "*",
     rateLimitPerMin: parseInt0(process.env.COMMS_RATE_LIMIT_PER_MIN, 0),
+    prefetch: parseBool(process.env.COMMS_PREFETCH),
   };
   return cached;
 }

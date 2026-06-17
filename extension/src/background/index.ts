@@ -134,6 +134,88 @@ function needsContextExtraction(mode: AnalyzeRequest["mode"]): boolean {
   return mode !== "shorter" && mode !== "longer";
 }
 
+// --- Speculative prefetch (perf-plan Phase E) ------------------------------
+//
+// On thread open the content script extracts and posts CONTEXT_EXTRACTED; if the
+// backend has prefetch enabled AND a fast HTTP provider is active, we pre-fire a
+// `suggest` draft and stash it keyed by the exact thread state. The first Suggest
+// click then serves instantly from this cache. Strongly gated: never prefetch
+// onto the slow gemini-cli (we'd spend a 30s subprocess on a draft nobody asked
+// for), single-use, and short-lived so a stale draft is never served.
+interface PrefetchEntry {
+  key: string;
+  at: number;
+  resp: BackendResponse;
+}
+const PREFETCH_TTL_MS = 2 * 60 * 1000;
+let prefetch: PrefetchEntry | null = null;
+let prefetchInFlight = false;
+
+// A thread's state fingerprint: title + message count + draft length. Any new
+// message or draft edit changes this, so a stale prefetch can never match.
+function prefetchKey(ctx: ConversationContext): string {
+  const title = ctx.conversation_title ?? "";
+  const msgs = ctx.messages?.length ?? 0;
+  const draft = (ctx.current_draft ?? "").length;
+  return `${title}|${msgs}|${draft}`;
+}
+
+interface HealthInfo {
+  provider: string;
+  prefetch: boolean;
+}
+let healthCache: { at: number; info: HealthInfo } | null = null;
+async function getHealth(): Promise<HealthInfo | null> {
+  if (healthCache && Date.now() - healthCache.at < 30_000) return healthCache.info;
+  try {
+    const res = await backendFetch("/health");
+    if (!res.ok) return null;
+    const j = (await res.json()) as { provider?: unknown; prefetch?: unknown };
+    const info: HealthInfo = { provider: String(j.provider ?? ""), prefetch: !!j.prefetch };
+    healthCache = { at: Date.now(), info };
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+async function maybePrefetch(ctx: ConversationContext): Promise<void> {
+  if (prefetchInFlight) return;
+  const health = await getHealth();
+  // Off unless explicitly enabled, and never onto the un-primable slow CLI.
+  if (!health || !health.prefetch || health.provider === "gemini-cli") return;
+  const key = prefetchKey(ctx);
+  if (prefetch && prefetch.key === key && Date.now() - prefetch.at < PREFETCH_TTL_MS) return;
+  prefetchInFlight = true;
+  try {
+    const resp = await postToBackend(ctx, "suggest", undefined, undefined);
+    prefetch = { key, at: Date.now(), resp };
+  } catch {
+    /* best-effort: a failed prefetch just means the real click runs normally */
+  } finally {
+    prefetchInFlight = false;
+  }
+}
+
+// Consume a prefetched draft if it matches this exact thread state and request.
+// Single-use: a draft is served at most once, then discarded.
+function takePrefetch(
+  ctx: ConversationContext,
+  mode: AnalyzeRequest["mode"],
+  seed: string | undefined,
+  steer: string | undefined,
+): BackendResponse | null {
+  if (mode !== "suggest" || seed || steer) return null; // only the plain first draft
+  if (!prefetch) return null;
+  if (prefetch.key !== prefetchKey(ctx) || Date.now() - prefetch.at > PREFETCH_TTL_MS) {
+    prefetch = null;
+    return null;
+  }
+  const resp = prefetch.resp;
+  prefetch = null;
+  return resp;
+}
+
 /**
  * Ask the content script on a profile page for a cold-open (first-message)
  * context: no conversation, just the contact's freshly-extracted profile.
@@ -255,6 +337,16 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
     ctx = await resolveAnalyzeContext(req, tab);
   } catch (err) {
     send({ type: "error", message: (err as Error).message });
+    return;
+  }
+
+  // Instant path: a speculative prefetch already drafted this exact thread state.
+  const cached = takePrefetch(ctx, req.mode, req.seed_text, req.steer);
+  if (cached) {
+    state.lastResponse = cached;
+    send({ type: "reply_done", suggested_reply: cached.suggested_reply, stats: cached.stats });
+    send({ type: "insight", memory_proposal: cached.memory_proposal, strategy: cached.strategy });
+    send({ type: "done" });
     return;
   }
 
@@ -492,6 +584,9 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse)
     if (msg.trigger === "observer") {
       state.lastContext = msg.payload;
       state.lastDiagnostics = msg.diagnostics;
+      // Thread opened/changed — speculatively draft a Suggest so the first click
+      // is instant (no-op unless the backend has prefetch on + a fast provider).
+      void maybePrefetch(msg.payload);
     }
     return false;
   }
