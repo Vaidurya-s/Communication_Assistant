@@ -193,7 +193,15 @@ export const OVERLAY_CSS = `
 
 /* Feedback */
 .ca-feedback { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.ca-feedback-note { display: flex; gap: 6px; width: 100%; }
+.ca-feedback-note { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.ca-fb-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ca-fb-other { display: flex; gap: 6px; width: 100%; }
+.ca-chip {
+  border: 1px solid var(--border); background: var(--panel-2); border-radius: 999px;
+  cursor: pointer; font-size: 11px; padding: 3px 10px; line-height: 1.3; transition: 0.15s;
+  color: var(--text);
+}
+.ca-chip:hover { transform: translateY(-1px); border-color: var(--accent); }
 .ca-thumb {
   border: 1px solid var(--border); background: var(--panel-2); border-radius: 8px;
   cursor: pointer; font-size: 14px; padding: 3px 9px; line-height: 1.2; transition: 0.15s;

@@ -419,9 +419,15 @@ app.post("/memory/notes/manual", (req: Request, res: Response) => {
 // folds the corrections into a regenerated voice profile.
 
 app.post("/feedback", (req: Request, res: Response) => {
-  const { rating, note, contact, suggestion } = req.body ?? {};
+  const { rating, note, contact, suggestion, section } = req.body ?? {};
   if (rating !== "up" && rating !== "down") {
     res.status(400).json({ error: "rating must be 'up' or 'down'" });
+    return;
+  }
+  // A structured 👎 chip names the voice section it's about. Validate against the
+  // known keys so a bad value can't pollute the feedback log (and later distill).
+  if (section !== undefined && !SECTION_KEYS.includes(section as SectionKey)) {
+    res.status(400).json({ error: `section must be one of: ${SECTION_KEYS.join(", ")}` });
     return;
   }
   try {
@@ -432,6 +438,7 @@ app.post("/feedback", (req: Request, res: Response) => {
         note: typeof note === "string" ? note : undefined,
         contact: typeof contact === "string" ? contact : undefined,
         suggestion: typeof suggestion === "string" ? suggestion : undefined,
+        section: typeof section === "string" ? section : undefined,
       },
       new Date().toISOString(),
     );

@@ -1,6 +1,11 @@
 # Voice profile — onboarding & editing overhaul (plan)
 
-**Status:** planning. To be executed phase by phase. No code yet.
+**Status:** Phases 1–4 shipped (editable voice tab, sectioned authoring, personal-
+context layer + contact-matched retrieval, cold-start flows). Phase 5 in progress:
+`feedback/apply` and **structured 👎 chips** (overlay chips route a thumbs-down to a
+specific voice section; stored in feedback.md + shown in the console inbox) are done.
+Remaining Phase 5: edit-mining capture, dashboard `voice:eval` + A/B + version revert,
+golden-thread guard, voice lint, explainability.
 **Owner decisions captured (2026-06-17):** one unified system (voice + personal
 context); edited in the dashboard; cold-start via guided interview + paste corpus
 + infer-from-LinkedIn; runtime model = compile voice to a single file, context as

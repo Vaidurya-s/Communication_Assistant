@@ -111,6 +111,8 @@ async function postFeedback(body: {
   note?: string;
   contact?: string;
   suggestion?: string;
+  /** Voice section a 👎 chip targets (must match backend SECTION_KEYS). */
+  section?: string;
 }): Promise<boolean> {
   try {
     const res = await backendFetch(`/feedback`, {
@@ -123,6 +125,18 @@ async function postFeedback(body: {
     return false;
   }
 }
+
+// Structured 👎 chips. Each maps a vague thumbs-down to a specific voice section
+// (one of the backend SECTION_KEYS) plus a canonical correction note, so the
+// feedback routes to the right section instead of "something was off". The
+// section strings MUST match backend voiceSections.SECTION_KEYS.
+const DOWN_CHIPS: ReadonlyArray<{ label: string; section: string; note: string }> = [
+  { label: "Too formal", section: "registers", note: "Too formal/stiff — loosen the register." },
+  { label: "Too long", section: "rhythm", note: "Too long — I write shorter; tighten the rhythm." },
+  { label: "Not my opener", section: "openers", note: "The opening didn't sound like how I open." },
+  { label: "Stiff closing", section: "closings", note: "The closing felt stiff — not how I sign off." },
+  { label: "Too generic", section: "vocabulary", note: "Too generic — use my specific phrasing, cut filler." },
+];
 
 // One-tap steers for the common rewrites.
 const TONES: ReadonlyArray<{ label: string; steer: string }> = [
@@ -400,6 +414,19 @@ export function Overlay({ onClose, coldOpen }: Props) {
     setShowFeedbackNote(true);
   };
 
+  // A chip is the fast path: route the 👎 to a specific voice section and send.
+  const submitChip = async (chip: { section: string; note: string }) => {
+    setFeedbackGiven("down");
+    setShowFeedbackNote(false);
+    await postFeedback({
+      rating: "down",
+      section: chip.section,
+      note: chip.note,
+      contact: feedbackContact,
+      suggestion: preview,
+    });
+  };
+
   const submitThumbDown = async () => {
     setFeedbackGiven("down");
     setShowFeedbackNote(false);
@@ -600,16 +627,29 @@ export function Overlay({ onClose, coldOpen }: Props) {
                     <span className="ca-ok">Thanks — noted for your next profile refresh.</span>
                   ) : showFeedbackNote ? (
                     <div className="ca-feedback-note">
-                      <input
-                        value={feedbackNote}
-                        onChange={(e) => setFeedbackNote(e.target.value)}
-                        placeholder="What was off? (optional)"
-                        className="ca-input"
-                        autoFocus
-                      />
-                      <button onClick={submitThumbDown} className="ca-btn ca-btn-primary">
-                        Send
-                      </button>
+                      <div className="ca-fb-chips">
+                        {DOWN_CHIPS.map((c) => (
+                          <button
+                            key={c.section}
+                            onClick={() => submitChip(c)}
+                            className="ca-chip"
+                            title={c.note}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="ca-fb-other">
+                        <input
+                          value={feedbackNote}
+                          onChange={(e) => setFeedbackNote(e.target.value)}
+                          placeholder="Other — what was off? (optional)"
+                          className="ca-input"
+                        />
+                        <button onClick={submitThumbDown} className="ca-btn ca-btn-primary">
+                          Send
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -819,16 +859,29 @@ export function Overlay({ onClose, coldOpen }: Props) {
                 <span className="ca-ok">Thanks — noted for your next profile refresh.</span>
               ) : showFeedbackNote ? (
                 <div className="ca-feedback-note">
-                  <input
-                    value={feedbackNote}
-                    onChange={(e) => setFeedbackNote(e.target.value)}
-                    placeholder="What was off? (optional)"
-                    className="ca-input"
-                    autoFocus
-                  />
-                  <button onClick={submitThumbDown} className="ca-btn ca-btn-primary">
-                    Send
-                  </button>
+                  <div className="ca-fb-chips">
+                    {DOWN_CHIPS.map((c) => (
+                      <button
+                        key={c.section}
+                        onClick={() => submitChip(c)}
+                        className="ca-chip"
+                        title={c.note}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="ca-fb-other">
+                    <input
+                      value={feedbackNote}
+                      onChange={(e) => setFeedbackNote(e.target.value)}
+                      placeholder="Other — what was off? (optional)"
+                      className="ca-input"
+                    />
+                    <button onClick={submitThumbDown} className="ca-btn ca-btn-primary">
+                      Send
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>

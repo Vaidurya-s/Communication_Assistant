@@ -379,6 +379,11 @@ h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .fb-item.up { border-left: 3px solid var(--ok); }
 .fb-item.down { border-left: 3px solid var(--warn); }
 .fb-head { font-weight: 600; }
+.fb-section {
+  display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 500; background: var(--panel); border: 1px solid var(--border);
+  color: var(--muted, #9aa0ad);
+}
 .fb-note { margin-top: 5px; }
 .fb-sug { margin-top: 5px; font-style: italic; }
 

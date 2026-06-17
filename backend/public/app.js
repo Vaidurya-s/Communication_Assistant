@@ -532,7 +532,7 @@ async function loadVoice() {
   const fb = v.feedback || [];
   const fbHtml = fb.length
     ? fb.map((f) => `<div class="fb-item ${f.rating}">
-        <div class="fb-head">${f.rating === "up" ? "👍 liked" : "👎 off"} <span class="muted small">${esc(fmtDate(f.date))}${f.contact ? " · " + esc(f.contact) : ""}</span></div>
+        <div class="fb-head">${f.rating === "up" ? "👍 liked" : "👎 off"} <span class="muted small">${esc(fmtDate(f.date))}${f.contact ? " · " + esc(f.contact) : ""}</span>${f.section ? ` <span class="fb-section">${esc(f.section)}</span>` : ""}</div>
         ${f.note ? `<div class="fb-note">${esc(f.note)}</div>` : ""}
         ${f.suggestion ? `<div class="muted small fb-sug">“${esc(f.suggestion)}”</div>` : ""}
       </div>`).join("")

@@ -26,6 +26,13 @@ export interface FeedbackEntry {
   note?: string;
   contact?: string;
   suggestion?: string;
+  /**
+   * Voice section a 👎 is about (one of SECTION_KEYS), set by the overlay's
+   * structured-feedback chips ("too formal" → registers, "not my opener" →
+   * openers, …). Lets a vague thumbs-down route to a specific section instead of
+   * a generic "something was off". Validated at the route before it reaches here.
+   */
+  section?: string;
 }
 
 const HEADER =
@@ -48,6 +55,7 @@ export function appendFeedback(
     "",
     `## ${entry.rating === "up" ? "👍 liked" : "👎 off"} — ${nowIso}`,
     entry.contact ? `- contact: ${oneLine(entry.contact)}` : "",
+    entry.section ? `- section: ${oneLine(entry.section)}` : "",
     entry.note ? `- what was off: ${oneLine(entry.note)}` : "",
     entry.suggestion ? `- suggestion: ${oneLine(entry.suggestion).slice(0, 400)}` : "",
   ].filter(Boolean);
@@ -70,6 +78,7 @@ export interface ParsedFeedback {
   rating: "up" | "down";
   date: string;
   contact?: string;
+  section?: string;
   note?: string;
   suggestion?: string;
 }
@@ -101,6 +110,7 @@ export function readFeedbackEntries(tenantId: string = DEFAULT_TENANT): ParsedFe
       rating,
       date,
       contact: field(/^-\s*contact:\s*(.+)$/m),
+      section: field(/^-\s*section:\s*(.+)$/m),
       note: field(/^-\s*what was off:\s*(.+)$/m),
       suggestion: field(/^-\s*suggestion:\s*(.+)$/m),
     });
