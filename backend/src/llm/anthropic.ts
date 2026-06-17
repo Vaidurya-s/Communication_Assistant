@@ -128,6 +128,35 @@ export function createAnthropicProvider(cfg: AnthropicConfig): LLMProvider {
         clearTimeout(timer);
       }
     },
+
+    async warm(opts: LLMRunOptions): Promise<void> {
+      const prefix = opts.staticPrefix;
+      if (!prefix) return; // nothing stable to cache
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+      try {
+        // max_tokens:1 — we don't want output, only the prefill that writes the
+        // prefix into the cache. The system block is byte-identical to the real
+        // draft's first block (same text + cache_control), so the first real
+        // draft reads this cache instead of re-writing it. The instruction block
+        // is omitted: it sits AFTER the breakpoint and never affects the prefix.
+        const msg = await client.messages.create(
+          {
+            model: cfg.model,
+            max_tokens: 1,
+            system: [{ type: "text", text: prefix, cache_control: { type: "ephemeral" } }],
+            messages: [{ role: "user", content: "warm" }],
+          },
+          { signal: controller.signal },
+        );
+        logUsage(cfg.model, msg.usage);
+      } catch (err) {
+        // Best-effort: a failed warm-up must never break boot or overlay-open.
+        console.warn(`[llm:anthropic] warm-up failed: ${(err as Error).message}`);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
   };
 }
 

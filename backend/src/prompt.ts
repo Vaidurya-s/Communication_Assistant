@@ -179,6 +179,23 @@ function aboutMeSection(items: BuildPromptInput["aboutMe"]): string[] {
   return lines;
 }
 
+/**
+ * The cacheable static prefix (voice profile + standing workspace note). Exported
+ * so the warm-up path can prewarm the EXACT same bytes the real draft will cache —
+ * any divergence here means the warm-up writes a cache the real request never reads.
+ */
+export function buildStaticPrefix(voiceProfile: string): string {
+  return [
+    "=== VOICE PROFILE (how I write — match this voice) ===",
+    voiceProfile,
+    "",
+    "=== AVAILABLE FILES IN YOUR WORKSPACE ===",
+    "linkedin_successful_messages.md — a corpus of my real past LinkedIn messages.",
+    "Use your Grep/Read tools on this file IF you want to see how I phrased",
+    "something specific. Otherwise the VOICE PROFILE alone is sufficient.",
+  ].join("\n");
+}
+
 export function buildPrompt(input: BuildPromptInput): {
   instruction: string;
   context: string;
@@ -210,15 +227,7 @@ export function buildPrompt(input: BuildPromptInput): {
   // mark it with a cache_control breakpoint and skip re-processing it on every
   // draft. Anything that varies per request (memory, ABOUT ME, the conversation)
   // must come AFTER it, or the cache prefix changes and never hits.
-  const staticPrefix = [
-    "=== VOICE PROFILE (how I write — match this voice) ===",
-    voiceProfile,
-    "",
-    "=== AVAILABLE FILES IN YOUR WORKSPACE ===",
-    "linkedin_successful_messages.md — a corpus of my real past LinkedIn messages.",
-    "Use your Grep/Read tools on this file IF you want to see how I phrased",
-    "something specific. Otherwise the VOICE PROFILE alone is sufficient.",
-  ].join("\n");
+  const staticPrefix = buildStaticPrefix(voiceProfile);
 
   // VARIABLE remainder — TRUSTED sections (memory, ABOUT ME) outside the
   // untrusted boundary, then the untrusted conversation block.

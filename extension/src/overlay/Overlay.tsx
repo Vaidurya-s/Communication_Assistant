@@ -207,6 +207,11 @@ export function Overlay({ onClose, coldOpen }: Props) {
 
     void refreshHealth();
 
+    // Prewarm the backend's prompt cache while the user reads the thread, so the
+    // first Suggest is a cache read. Best-effort: a no-op on providers that can't
+    // be primed, and any failure is harmless (the draft path still works).
+    void backendFetch("/warm", { method: "POST" }).catch(() => {});
+
     sendBackground({ type: "STATUS_REQUEST" }).then(async (resp) => {
       if (resp?.type === "STATUS_RESPONSE" && resp.lastContext) {
         const info = {

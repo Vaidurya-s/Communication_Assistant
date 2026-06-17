@@ -14,7 +14,7 @@ import {
   voiceProfilePath,
   VoiceProfileMissingError,
 } from "./voiceProfile.js";
-import { buildPrompt, type Mode } from "./prompt.js";
+import { buildPrompt, buildStaticPrefix, type Mode } from "./prompt.js";
 import {
   addNote,
   confirmNote,
@@ -107,6 +107,27 @@ function getVoice(tenantId: string): string {
     voiceCache.set(tenantId, v);
   }
   return v;
+}
+
+// Prewarm a tenant's prompt cache: writes the (byte-stable) voice prefix into the
+// provider's cache so the first real draft is a cache READ, not a cold write.
+// A no-op for providers that can't be primed (gemini-cli / openai-compat don't
+// implement `warm`). Best-effort and never throws — warm-up must not break a
+// request or boot. De-duped per tenant while in flight so overlay-open spam can't
+// fan out into N concurrent prewarms.
+const warmInFlight = new Set<string>();
+async function warmTenant(tenantId: string): Promise<void> {
+  if (warmInFlight.has(tenantId)) return;
+  const provider = getProviderFor(tenantId);
+  if (!provider.warm) return;
+  warmInFlight.add(tenantId);
+  try {
+    await provider.warm({ tenantId, staticPrefix: buildStaticPrefix(getVoice(tenantId)) });
+  } catch {
+    /* provider.warm already swallows; this guards getVoice/provider resolution */
+  } finally {
+    warmInFlight.delete(tenantId);
+  }
 }
 
 app.get("/health", (req: Request, res: Response) => {
@@ -348,6 +369,17 @@ app.post("/analyze", async (req: Request, res: Response) => {
       insight_status: insightResult.status,
     },
   });
+});
+
+// Cache prewarm — the overlay pings this on open so the voice prefix is hot
+// before the user clicks Suggest. Returns immediately (warm runs in the
+// background); `warmable` tells the caller whether the active provider can be
+// primed at all, so the overlay needn't ping a provider that can't benefit.
+app.post("/warm", (req: Request, res: Response) => {
+  const t = tenant(req);
+  const warmable = !!getProviderFor(t).warm;
+  if (warmable) void warmTenant(t);
+  res.json({ ok: true, warmable, provider: getProviderNameFor(t) });
 });
 
 // --- Memory endpoints ------------------------------------------------------
@@ -1069,4 +1101,7 @@ app.listen(PORT, HOST, () => {
   const voiceChars = getVoice(DEFAULT_TENANT).length;
   console.log(`backend on http://${HOST}:${PORT} — voice profile loaded (${voiceChars} chars) — provider=${getProviderName()}`);
   console.log(`console: http://${HOST}:${PORT}/`);
+  // Prewarm the local tenant's cache on boot so the very first draft is a cache
+  // read. No-op (and silent) unless the active provider supports priming.
+  void warmTenant(DEFAULT_TENANT);
 });
