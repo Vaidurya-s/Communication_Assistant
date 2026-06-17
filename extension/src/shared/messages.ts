@@ -58,6 +58,14 @@ export type RuntimeMessage =
    * cold_open analyze; the reply comes back as BACKEND_RESPONSE.
    */
   | { type: "COMPOSE_INTRO"; profileUrl: string; intent: string }
+  /**
+   * Popup → background: scrape the user's OWN profile (the active profile tab)
+   * and import it into the backend's personal-context ("About me") store as
+   * proposed items for later confirmation.
+   */
+  | { type: "IMPORT_SELF_PROFILE" }
+  /** Background → popup: profile imported; `created` proposed context items. */
+  | { type: "IMPORT_RESULT"; payload: { created: number } }
   /** Background → content script: (re-)mount the overlay on demand. */
   | { type: "SHOW_OVERLAY" }
   /** Content script → caller: the overlay is now mounted. */

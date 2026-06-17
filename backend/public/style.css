@@ -413,6 +413,8 @@ h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .ctx-item-head .ctx-title { font-weight: 600; }
 .ctx-tags { font-family: "JetBrains Mono", monospace; font-size: 12px; }
 .ctx-actions { display: flex; gap: 5px; justify-content: flex-end; }
+.ctx-item.ctx-new { border-color: var(--accent); }
+.icon-btn.armed { color: var(--danger); border-color: var(--danger); }
 
 /* ---- Activity ------------------------------------------------------------ */
 #activityFilter { margin-bottom: 18px; }

@@ -609,14 +609,29 @@ async function loadVoice() {
     finally { btn.disabled = false; }
   });
 
-  // Paste-to-distill.
+  // Paste-to-distill. Two-step button (no blocking confirm dialog): the first
+  // click arms the overwrite, the second runs it; it disarms after a few seconds.
+  let distillArmed = false;
+  let distillTimer = null;
   $("#distillBtn").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     const corpusText = $("#corpusText").value.trim();
     if (!corpusText) { toast("Paste some of your messages first", "err"); return; }
-    if (!confirm("Analyze these messages and overwrite the compiled profile?")) return;
+    if (!distillArmed) {
+      distillArmed = true;
+      btn.textContent = "Click again — this overwrites your profile";
+      btn.classList.add("danger");
+      distillTimer = setTimeout(() => {
+        distillArmed = false;
+        btn.textContent = "Analyze my voice";
+        btn.classList.remove("danger");
+      }, 4000);
+      return;
+    }
+    clearTimeout(distillTimer);
+    distillArmed = false;
+    btn.classList.remove("danger");
     btn.disabled = true;
-    const prev = btn.textContent;
     btn.textContent = "Analyzing…";
     try {
       const r = await api("/voice/distill", {
@@ -625,7 +640,7 @@ async function loadVoice() {
       toast(`Voice distilled — ${(r.chars || 0).toLocaleString()} characters`);
       loadVoice();
     } catch (err) { toast(err.message, "err"); }
-    finally { btn.disabled = false; btn.textContent = prev; }
+    finally { btn.disabled = false; btn.textContent = "Analyze my voice"; }
   });
 }
 $("#refreshVoice").addEventListener("click", loadVoice);
@@ -700,8 +715,17 @@ function wireCtxItem(el) {
       toast("Saved");
     } catch (err) { toast(err.message, "err"); }
   });
-  el.querySelector('[data-act="delete"]').addEventListener("click", async () => {
-    if (!confirm("Delete this item?")) return;
+  const delBtn = el.querySelector('[data-act="delete"]');
+  let delArmed = false, delTimer = null;
+  delBtn.addEventListener("click", async () => {
+    if (!delArmed) {
+      delArmed = true;
+      delBtn.textContent = "click again to delete";
+      delBtn.classList.add("armed");
+      delTimer = setTimeout(() => { delArmed = false; delBtn.textContent = "delete"; delBtn.classList.remove("armed"); }, 3000);
+      return;
+    }
+    clearTimeout(delTimer);
     try { await api(`/context/${id}`, { method: "DELETE" }); toast("Deleted"); loadAbout(); }
     catch (err) { toast(err.message, "err"); }
   });
@@ -716,17 +740,44 @@ function wireCtxItem(el) {
   });
 }
 
-async function addCtxItem(type) {
+function addCtxItem(type) {
   const group = CONTEXT_GROUPS.find((g) => g.type === type);
-  const title = prompt(`New ${group ? group.label.replace(/s$/, "") : type} — title:`);
-  if (title === null || !title.trim()) return;
-  try {
-    await api("/context", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, title: title.trim(), body: "" }),
-    });
-    toast("Added"); loadAbout();
-  } catch (err) { toast(err.message, "err"); }
+  const noun = group ? group.label.replace(/s$/, "") : type;
+  const listEl = document.querySelector(`#aboutContent .ctx-group[data-type="${type}"] .ctx-list`);
+  if (!listEl || listEl.querySelector(".ctx-new")) return; // already adding one
+
+  // Inline add form (no blocking prompt()). Both title and body are required —
+  // the backend rejects an empty body, so we collect both here.
+  const form = document.createElement("div");
+  form.className = "ctx-item ctx-new";
+  form.innerHTML = `
+    <input class="ctx-title" type="text" placeholder="${esc(noun)} — title" />
+    <textarea class="ctx-body" rows="3" placeholder="A sentence or two…"></textarea>
+    <div class="ctx-actions">
+      <button class="icon-btn ok" data-act="create">add</button>
+      <button class="icon-btn" data-act="cancel">cancel</button>
+    </div>`;
+  // Drop a "Nothing here yet." placeholder if present, then prepend the form.
+  const placeholder = listEl.querySelector(".muted.small");
+  if (placeholder) placeholder.remove();
+  listEl.prepend(form);
+  const titleEl = form.querySelector(".ctx-title");
+  titleEl.focus();
+
+  form.querySelector('[data-act="cancel"]').addEventListener("click", () => loadAbout());
+  form.querySelector('[data-act="create"]').addEventListener("click", async () => {
+    const title = titleEl.value.trim();
+    const body = form.querySelector(".ctx-body").value.trim();
+    if (!title) { toast("Title required", "err"); titleEl.focus(); return; }
+    if (!body) { toast("Add a short detail", "err"); return; }
+    try {
+      await api("/context", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, title, body }),
+      });
+      toast("Added"); loadAbout();
+    } catch (err) { toast(err.message, "err"); }
+  });
 }
 
 // ---------------------------------------------------------------- Activity

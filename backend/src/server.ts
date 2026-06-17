@@ -518,6 +518,54 @@ app.post("/context/:id/confirm", (req: Request, res: Response) => {
   res.json({ ok });
 });
 
+/**
+ * Cold-start (voice-onboarding §8): seed "ABOUT ME" from the user's OWN scraped
+ * LinkedIn profile. The extension posts the profile it extracted; we map it to
+ * PROPOSED (confirmed=0) context items — headline/about → a bio, recent
+ * experience → projects — for the user to review and confirm in the dashboard.
+ * Proposed, not trusted, mirrors the memory-note trust gate (auto-imported
+ * content isn't injected until the user signs off).
+ */
+function contextItemsFromProfile(
+  profile: IncomingContactProfile,
+): Array<{ type: ContextType; title: string; body: string; confirmed: 0 }> {
+  const items: Array<{ type: ContextType; title: string; body: string; confirmed: 0 }> = [];
+  const about = (profile.about ?? "").trim();
+  const headline = (profile.headline ?? "").trim();
+  if (about || headline) {
+    items.push({ type: "bio", title: headline || "About me", body: about || headline, confirmed: 0 });
+  }
+  for (const e of (profile.experience ?? []).slice(0, 4)) {
+    const title = [e.title, e.company].filter(Boolean).join(" @ ");
+    if (!title) continue;
+    items.push({ type: "project", title, body: e.duration ? `Experience · ${e.duration}` : "Experience", confirmed: 0 });
+  }
+  return items;
+}
+
+app.post("/onboarding/from-linkedin", (req: Request, res: Response) => {
+  const profile = req.body?.profile as IncomingContactProfile | undefined;
+  if (!profile || typeof profile !== "object" || typeof profile.name !== "string" || !profile.name.trim()) {
+    res.status(400).json({ error: "a scraped profile with a name is required" });
+    return;
+  }
+  try {
+    const t = tenant(req);
+    let created = 0;
+    for (const it of contextItemsFromProfile(profile)) {
+      try {
+        addContextItem(t, it);
+        created++;
+      } catch {
+        /* skip an item that fails validation rather than fail the whole import */
+      }
+    }
+    res.json({ ok: true, created });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // --- Voice authoring (sections + in-browser distill, compiles to runtime file) ---
 
 app.get("/voice/sections", (req: Request, res: Response) => {

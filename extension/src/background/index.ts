@@ -266,6 +266,50 @@ async function handleComposeIntro(req: {
   }
 }
 
+/**
+ * Cold-start: import the USER'S OWN LinkedIn profile (the active profile tab)
+ * into the backend's personal-context store. Reuses the cold-open profile
+ * extractor — no new content-script code — then POSTs the scraped
+ * ContactProfile to `/onboarding/from-linkedin`, which creates *proposed*
+ * "About me" context items for the user to confirm in the dashboard.
+ */
+async function handleImportSelfProfile(): Promise<RuntimeMessage> {
+  const tab = await getActiveTab();
+  if (!tab || tab.id === undefined) return { type: "ERROR", message: "no active tab" };
+  if (!tab.url || !isProfileUrl(tab.url)) {
+    return { type: "ERROR", message: "open your own LinkedIn profile first" };
+  }
+
+  try {
+    await ensureContentScriptInjected(tab);
+    const ctx = await requestColdOpenContext(tab.id);
+    const profile = ctx.contact_profile;
+    if (!profile || !profile.name) {
+      return { type: "ERROR", message: "couldn't read this profile" };
+    }
+
+    const res = await backendFetch("/onboarding/from-linkedin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile }),
+    });
+    if (!res.ok) {
+      let detail = `backend ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.error) detail = `${detail}: ${j.error}`;
+      } catch {
+        // ignore body parse errors
+      }
+      return { type: "ERROR", message: detail };
+    }
+    const j = (await res.json()) as { ok?: boolean; created?: number };
+    return { type: "IMPORT_RESULT", payload: { created: j.created ?? 0 } };
+  } catch (err) {
+    return { type: "ERROR", message: (err as Error).message };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse) => {
   if (msg.type === "ANALYZE_REQUEST") {
     handleAnalyze(msg).then(sendResponse);
@@ -279,6 +323,11 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse)
 
   if (msg.type === "COMPOSE_INTRO") {
     handleComposeIntro(msg).then(sendResponse);
+    return true;
+  }
+
+  if (msg.type === "IMPORT_SELF_PROFILE") {
+    handleImportSelfProfile().then(sendResponse);
     return true;
   }
 

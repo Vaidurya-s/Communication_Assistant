@@ -20,6 +20,11 @@ export function App() {
   const [backendSaved, setBackendSaved] = useState(false);
   const [backendStatus, setBackendStatus] = useState<string>("");
 
+  // Import the user's own LinkedIn profile into the "About me" context store.
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<string>("");
+  const [importError, setImportError] = useState<string>("");
+
   // Compose a first message by profile URL (works from anywhere).
   const [composeUrl, setComposeUrl] = useState<string>("");
   const [composeIntent, setComposeIntent] = useState<string>("");
@@ -61,6 +66,25 @@ export function App() {
       setComposeError((e as Error).message);
     } finally {
       setComposeBusy(false);
+    }
+  };
+
+  const onImportSelf = async () => {
+    setImportError("");
+    setImportResult("");
+    setImportBusy(true);
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: "IMPORT_SELF_PROFILE" });
+      if (resp?.type === "IMPORT_RESULT") {
+        const n = resp.payload?.created ?? 0;
+        setImportResult(`Imported ${n} items — confirm them in the dashboard's About-me tab`);
+      } else {
+        setImportError(resp?.message ?? "couldn't import this profile");
+      }
+    } catch (e) {
+      setImportError((e as Error).message);
+    } finally {
+      setImportBusy(false);
     }
   };
 
@@ -114,6 +138,7 @@ export function App() {
   };
 
   const onSupported = isSupportedMessagingUrl(activeTabUrl);
+  const onProfilePage = isProfileUrl(activeTabUrl);
 
   return (
     <div>
@@ -141,6 +166,29 @@ export function App() {
         Open the panel
       </button>
       {openStatus && <div className="pop-substatus">{openStatus}</div>}
+
+      <hr className="pop-divider" />
+
+      <label className="pop-label">
+        Import my LinkedIn into About-me <span className="pop-hint">(your own profile)</span>
+      </label>
+      {onProfilePage ? (
+        <>
+          <button
+            onClick={onImportSelf}
+            disabled={importBusy}
+            className="pop-btn pop-btn-block"
+          >
+            {importBusy ? "Importing…" : "Import this profile"}
+          </button>
+          {importResult && <div className="pop-substatus">{importResult}</div>}
+          {importError && <div className="pop-substatus">{importError}</div>}
+        </>
+      ) : (
+        <div className="pop-substatus">
+          Open your own LinkedIn profile, then click here.
+        </div>
+      )}
 
       <hr className="pop-divider" />
 
