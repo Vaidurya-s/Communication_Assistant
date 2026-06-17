@@ -570,6 +570,13 @@ async function loadVoice() {
       </div>
     </details>
 
+    <details class="panel distill-panel" id="interviewPanel">
+      <summary><strong>Quick interview</strong> <span class="muted small">— answer a few questions, no corpus needed</span></summary>
+      <p class="muted small">No messages to paste? Answer these and the assistant fills in voice sections and
+        proposes <span class="badge pending">About-me</span> items (confirm them in the About me tab).</p>
+      <div id="interviewBody"><div class="muted small">Open to load the questions…</div></div>
+    </details>
+
     <div class="panel">
       <div class="panel-head"><h2>Voice sections</h2><span class="panel-kick">Editable</span></div>
       <p class="muted small">Each card is a building block. Save edits here, then Compile to apply them.</p>
@@ -681,6 +688,41 @@ async function loadVoice() {
       loadVoice();
     } catch (err) { toast(err.message, "err"); }
     finally { btn.disabled = false; btn.textContent = "Analyze my voice"; }
+  });
+
+  // Quick interview — lazy-load the questions the first time the panel opens.
+  const ivPanel = $("#interviewPanel");
+  let ivLoaded = false;
+  ivPanel.addEventListener("toggle", async () => {
+    if (!ivPanel.open || ivLoaded) return;
+    ivLoaded = true;
+    const body = $("#interviewBody");
+    let qs;
+    try { qs = (await api("/onboarding/interview")).questions || []; }
+    catch (err) { body.innerHTML = `<div class="status err">${esc(err.message)}</div>`; ivLoaded = false; return; }
+    body.innerHTML = `<div class="iv-form">` + qs.map((q, i) => `
+      <div class="iv-card">
+        <div class="iv-q"><span class="iv-num">${i + 1}</span>${esc(q.prompt)}</div>
+        ${q.hint ? `<div class="iv-hint muted small">${esc(q.hint)}</div>` : ""}
+        <textarea class="iv-answer" data-qid="${esc(q.id)}" rows="${q.target && q.target.multiline ? 4 : 3}" placeholder="Type your answer…"></textarea>
+      </div>
+    `).join("") + `</div>
+      <div class="btn-row" style="margin-top:14px"><button class="btn primary" id="interviewSubmit">Save my answers</button></div>`;
+    $("#interviewSubmit").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const answers = {};
+      $$("#interviewBody .iv-answer").forEach((t) => { if (t.value.trim()) answers[t.dataset.qid] = t.value; });
+      if (!Object.keys(answers).length) { toast("Answer at least one question", "err"); return; }
+      btn.disabled = true; btn.textContent = "Saving…";
+      try {
+        const r = await api("/onboarding/interview", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }),
+        });
+        toast(`Saved — ${r.sectionsWritten.length} section(s), ${r.contextCreated} About-me item(s). Compile to apply, confirm items in About me.`);
+        loadVoice();
+      } catch (err) { toast(err.message, "err"); }
+      finally { btn.disabled = false; btn.textContent = "Save my answers"; }
+    });
   });
 }
 $("#refreshVoice").addEventListener("click", loadVoice);

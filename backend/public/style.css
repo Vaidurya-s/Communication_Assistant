@@ -410,6 +410,14 @@ h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .distill-panel summary::before { content: "▸ "; color: var(--faint); }
 .distill-panel[open] summary::before { content: "▾ "; }
 .distill-panel #corpusText { margin-top: 12px; }
+/* Quick interview — Google-Forms-style question cards */
+.iv-form { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+.iv-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.iv-card .iv-q { display: flex; align-items: baseline; gap: 9px; font-weight: 600; font-size: 15px; margin: 0 0 4px; }
+.iv-num { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.iv-card .iv-hint { margin: 0 0 11px 31px; }
+.iv-card .iv-answer { display: block; width: 100%; min-height: 88px; padding: 11px 13px; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font: inherit; resize: vertical; }
+.iv-card .iv-answer:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* About me — context cards */
 .ctx-group .panel-head { margin-bottom: 8px; }
