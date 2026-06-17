@@ -505,9 +505,14 @@ const VOICE_LABELS = {
 async function loadVoice() {
   const el = $("#voiceContent");
   el.innerHTML = `<div class="muted">Loading…</div>`;
-  let v, s, st;
+  let v, s, st, ver;
   try {
-    [v, s, st] = await Promise.all([api("/voice"), api("/voice/sections"), api("/voice/strength")]);
+    [v, s, st, ver] = await Promise.all([
+      api("/voice"),
+      api("/voice/sections"),
+      api("/voice/strength"),
+      api("/voice/versions").catch(() => ({ versions: [] })),
+    ]);
   } catch (err) { el.innerHTML = `<div class="status err">${esc(err.message)}</div>`; return; }
 
   const keys = s.keys || [];
@@ -529,6 +534,14 @@ async function loadVoice() {
       </div>
     </div>`;
   }).join("");
+
+  const versions = (ver && ver.versions) || [];
+  const versionsHtml = versions.length
+    ? versions.map((x) => `<div class="ver-item">
+        <div><span class="badge">${esc(x.reason)}</span> <span class="muted small">${esc(fmtDate(x.created_at))} · ${(x.chars || 0).toLocaleString()} chars</span></div>
+        <button class="btn ghost small" data-act="restore-version" data-id="${esc(x.id)}">Restore</button>
+      </div>`).join("")
+    : `<div class="muted small">No versions yet. Snapshots are saved automatically before each Compile, Distill, or Apply.</div>`;
 
   const fb = v.feedback || [];
   const fbHtml = fb.length
@@ -590,7 +603,14 @@ async function loadVoice() {
         ${fb.length ? `<button class="btn ghost small" id="applyFeedbackBtn">Apply corrections to my profile</button>` : ""}
       </div>
       ${fbHtml}
-    </div>`;
+    </div>
+
+    <details class="panel">
+      <summary><strong>Version history (${versions.length})</strong> <span class="muted small">— restore an earlier profile</span></summary>
+      <p class="muted small">A snapshot is saved automatically before each Compile, Distill, or Apply, so a
+        regeneration is never a one-way door. Restoring also snapshots the current one first.</p>
+      <div class="ver-list">${versionsHtml}</div>
+    </details>`;
 
   // View-compiled toggle.
   $("#toggleCompiled").addEventListener("click", () => {
@@ -643,6 +663,22 @@ async function loadVoice() {
       loadVoice();
     } catch (err) { toast(err.message, "err"); }
     finally { btn.disabled = false; btn.textContent = prev; }
+  });
+
+  // Restore a prior profile version.
+  $$('#voiceContent [data-act="restore-version"]').forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      const id = b.dataset.id;
+      b.disabled = true;
+      const prev = b.textContent;
+      b.textContent = "Restoring…";
+      try {
+        await api(`/voice/versions/${encodeURIComponent(id)}/restore`, { method: "POST" });
+        toast("Profile restored from snapshot");
+        loadVoice();
+      } catch (err) { toast(err.message, "err"); b.disabled = false; b.textContent = prev; }
+    });
   });
 
   // Compile.

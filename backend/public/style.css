@@ -386,6 +386,11 @@ h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 }
 .fb-note { margin-top: 5px; }
 .fb-sug { margin-top: 5px; font-style: italic; }
+.ver-list { display: flex; flex-direction: column; gap: 6px; }
+.ver-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2);
+}
 
 /* Voice — editor */
 .mono { font-family: "JetBrains Mono", monospace; }

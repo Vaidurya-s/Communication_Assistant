@@ -8,8 +8,11 @@ specific voice section; stored in feedback.md + shown in the console inbox), and
 avoid — `voiceLint.ts` + `POST /voice/lint` + overlay heads-up), and **edit-mining**
 (opt-in: the diff between a suggestion and what the user copies is captured as a
 candidate correction — `editMining.ts` + `POST /voice/edits` + popup toggle, folded
-into `feedback/apply`) are done. Remaining Phase 5: dashboard `voice:eval` + A/B +
-version revert, golden-thread guard, explainability.
+into `feedback/apply`), and **profile versioning + revert** (every destructive
+op — compile/distill/apply — auto-snapshots the prior profile; `voiceVersions.ts` +
+`GET /voice/versions` + `POST /voice/versions/:id/restore` + console version history)
+are done. Remaining Phase 5: dashboard `voice:eval` + A/B, golden-thread guard,
+explainability.
 **Owner decisions captured (2026-06-17):** one unified system (voice + personal
 context); edited in the dashboard; cold-start via guided interview + paste corpus
 + infer-from-LinkedIn; runtime model = compile voice to a single file, context as

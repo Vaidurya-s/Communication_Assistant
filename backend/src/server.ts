@@ -37,6 +37,7 @@ import { ensureWorkspace } from "./workspace.js";
 import { listSnapshots, saveSnapshot } from "./snapshots.js";
 import { appendFeedback, readFeedback, readFeedbackEntries } from "./feedback.js";
 import { appendEdit, editsAsCorrections, readEditEntries } from "./editMining.js";
+import { listVersions, restoreVersion, snapshotProfile } from "./voiceVersions.js";
 import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
 import { exportTenant, purgeTenant } from "./tenantData.js";
@@ -764,6 +765,7 @@ app.put("/voice/sections/:key", (req: Request, res: Response) => {
 app.post("/voice/compile", (req: Request, res: Response) => {
   const t = tenant(req);
   try {
+    snapshotProfile(t, "compile"); // undo point before overwriting the runtime file
     const compiled = compileSections(t);
     voiceCache.delete(t); // the runtime artifact changed
     res.json({ ok: true, chars: compiled.length });
@@ -833,6 +835,7 @@ app.post("/voice/feedback/apply", async (req: Request, res: Response) => {
   const corrections = [feedback, edits].filter((s) => s.trim()).join("\n\n");
   try {
     const markdown = await distill(t, { feedback: corrections });
+    snapshotProfile(t, "apply"); // undo point before overwriting
     writeFileSync(voiceProfilePath(t), markdown, "utf-8");
     voiceCache.delete(t);
     res.json({ ok: true, chars: markdown.length });
@@ -851,12 +854,32 @@ app.post("/voice/distill", async (req: Request, res: Response) => {
   const corpusText = typeof req.body?.corpusText === "string" ? req.body.corpusText : undefined;
   try {
     const markdown = await distill(t, { corpusText });
+    snapshotProfile(t, "distill"); // undo point before overwriting
     writeFileSync(voiceProfilePath(t), markdown, "utf-8");
     voiceCache.delete(t);
     res.json({ ok: true, chars: markdown.length });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// Voice version history (Phase 5 safety net): list snapshots and revert. Each
+// destructive op (compile / distill / apply) snapshots the prior profile first;
+// a restore snapshots the current one ("pre-restore") so it's itself undoable.
+app.get("/voice/versions", (req: Request, res: Response) => {
+  res.json({ versions: listVersions(tenant(req)) });
+});
+
+app.post("/voice/versions/:id/restore", (req: Request, res: Response) => {
+  const t = tenant(req);
+  const id = req.params.id;
+  snapshotProfile(t, "pre-restore"); // keep an undo point for the restore itself
+  if (!restoreVersion(t, id)) {
+    res.status(404).json({ error: "unknown version id" });
+    return;
+  }
+  voiceCache.delete(t); // runtime artifact changed
+  res.json({ ok: true });
 });
 
 // --- Data lifecycle (H5): portability + erasure --------------------------
