@@ -504,9 +504,9 @@ const VOICE_LABELS = {
 async function loadVoice() {
   const el = $("#voiceContent");
   el.innerHTML = `<div class="muted">Loading…</div>`;
-  let v, s;
+  let v, s, st;
   try {
-    [v, s] = await Promise.all([api("/voice"), api("/voice/sections")]);
+    [v, s, st] = await Promise.all([api("/voice"), api("/voice/sections"), api("/voice/strength")]);
   } catch (err) { el.innerHTML = `<div class="status err">${esc(err.message)}</div>`; return; }
 
   const keys = s.keys || [];
@@ -524,6 +524,7 @@ async function loadVoice() {
       <textarea class="vsec-body" rows="6" placeholder="Describe this part of your voice…">${esc(sec.body || "")}</textarea>
       <div class="vsec-foot">
         <button class="btn primary small" data-act="save-section">Save</button>
+        <button class="btn ghost small" data-act="regen-section">Regenerate</button>
       </div>
     </div>`;
   }).join("");
@@ -542,6 +543,13 @@ async function loadVoice() {
       <div class="voice-stat">
         <span class="badge ${v.ok ? "ok" : "warn"}">${v.ok ? "ready" : "needs setup"}</span>
         <span class="muted small">compiled profile · ${v.chars.toLocaleString()} characters${v.updated_at ? " · updated " + fmtDate(v.updated_at) : ""}</span>
+      </div>
+      <div class="strength">
+        <div class="strength-row">
+          <div class="strength-bar"><div class="strength-fill" style="width:${Math.max(0, Math.min(100, st.score))}%"></div></div>
+          <span class="strength-label">Voice strength: <strong>${st.score}</strong> · ${esc(st.label)}</span>
+        </div>
+        <div class="muted small">${st.nextBest ? "Next: " + esc(st.nextBest) : "Your voice profile is in great shape."}</div>
       </div>
       <p class="muted small">Edit the sections below, then <strong>Compile</strong> to write the runtime profile
         (<code>voice_profile/strategy_analysis.md</code>) — the voice the assistant actually writes in.</p>
@@ -594,6 +602,20 @@ async function loadVoice() {
         toast(`Saved “${VOICE_LABELS[key] || key}” — Compile to apply`);
       } catch (err) { toast(err.message, "err"); }
       finally { btn.disabled = false; }
+    });
+
+    // Per-section regenerate from the corpus (one LLM call; can take ~30s).
+    card.querySelector('[data-act="regen-section"]').addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = "Regenerating…";
+      try {
+        const r = await api(`/voice/sections/${encodeURIComponent(key)}/regenerate`, { method: "POST" });
+        card.querySelector(".vsec-body").value = r.body || "";
+        toast(`Regenerated “${VOICE_LABELS[key] || key}” — review, then Compile`);
+      } catch (err) { toast(err.message, "err"); }
+      finally { btn.disabled = false; btn.textContent = prev; }
     });
   });
 

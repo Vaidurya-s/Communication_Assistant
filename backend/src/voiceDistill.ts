@@ -14,6 +14,7 @@ import { runLLM } from "./llm/index.js";
 import { ensureWorkspace } from "./workspace.js";
 import { DEFAULT_TENANT } from "./tenant.js";
 import { voiceDirFor } from "./voiceProfile.js";
+import { SECTION_LABELS, type SectionKey } from "./voiceSections.js";
 
 // Keep the prompt small so the call is fast and reliable across providers.
 // A few hundred sample messages fit easily; more than this adds latency
@@ -129,4 +130,67 @@ export async function distill(
   const res = await runLLM(DISTILL_INSTRUCTION, context, { tenantId });
 
   return GENERATED_HEADER + res.text.trim() + "\n";
+}
+
+/**
+ * The one aspect each section asks the model to focus on. Used to build a
+ * section-specific instruction for `distillSection` — the per-section analogue
+ * of the nine bullets baked into DISTILL_INSTRUCTION above.
+ */
+const SECTION_FOCUS: Record<SectionKey, string> = {
+  openers: "how I OPEN messages (greeting or not, first line)",
+  rhythm: "my sentence length and rhythm",
+  disagreeing: "how I DISAGREE or push back",
+  questions: "how I ask questions",
+  closings: "how I CLOSE/sign off",
+  registers: "how my tone shifts by audience (who gets warmer vs. more formal)",
+  vocabulary: "words/phrases I use and ones I avoid",
+  declining: "how I decline or say no",
+};
+
+/**
+ * Regenerate a SINGLE voice-profile section from the corpus — the per-card
+ * "Regenerate this section" action. Same corpus/clipping as `distill()`, but
+ * the model is told to analyse ONLY the one aspect named by `key` and return
+ * just that section's body (no Markdown heading, no preamble) — ready to drop
+ * straight into `saveSection(tenantId, key, body)`.
+ *
+ * @param opts.corpusText  use this corpus instead of reading `raw_corpus/`.
+ * @throws if the corpus is empty — there are no samples to learn from.
+ */
+export async function distillSection(
+  tenantId: string,
+  key: SectionKey,
+  opts?: { corpusText?: string },
+): Promise<string> {
+  const text = (opts?.corpusText ?? collectCorpus(tenantId).text).trim();
+  if (!text) {
+    throw new Error(
+      `Cannot regenerate section "${key}": no voice corpus found for tenant "${tenantId}".`,
+    );
+  }
+
+  const clipped = text.length > MAX_CHARS;
+  const context =
+    "=== MY REAL PAST MESSAGES (samples to learn my voice from) ===\n" +
+    (clipped ? text.slice(0, MAX_CHARS) + "\n…(truncated)" : text);
+
+  const sectionInstruction = [
+    "You are analysing a person's REAL past messages to capture how they write, so",
+    "an assistant can draft new messages in their exact voice.",
+    "Do NOT use any tools — analyse only the samples provided below.",
+    "",
+    `Focus on ONE aspect only: ${SECTION_FOCUS[key]} (the "${SECTION_LABELS[key]}" section).`,
+    "Write 1–4 SPECIFIC, concrete observations grounded in the samples (quote short",
+    "fragments where useful) as plain prose or bullets. Be precise, not generic —",
+    "'opens with a one-line acknowledgement, no greeting' beats 'friendly and professional'.",
+    "",
+    "Output ONLY the body text for that one section — NO Markdown heading, NO preamble,",
+    "no other sections, nothing else.",
+  ].join("\n");
+
+  ensureWorkspace(tenantId); // gemini-cli needs its sandbox cwd to exist
+  const res = await runLLM(sectionInstruction, context, { tenantId });
+
+  return res.text.trim();
 }

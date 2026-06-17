@@ -57,7 +57,8 @@ import {
   saveSection,
   type SectionKey,
 } from "./voiceSections.js";
-import { distill } from "./voiceDistill.js";
+import { distill, distillSection } from "./voiceDistill.js";
+import { computeStrength } from "./voiceStrength.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -604,6 +605,47 @@ app.post("/voice/compile", (req: Request, res: Response) => {
     const compiled = compileSections(t);
     voiceCache.delete(t); // the runtime artifact changed
     res.json({ ok: true, chars: compiled.length });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/** Regenerate ONE voice section from the corpus (per-section "Regenerate"). */
+app.post("/voice/sections/:key/regenerate", async (req: Request, res: Response) => {
+  const key = req.params.key as SectionKey;
+  if (!SECTION_KEYS.includes(key)) {
+    res.status(400).json({ error: `unknown section '${key}'` });
+    return;
+  }
+  try {
+    const body = await distillSection(tenant(req), key);
+    saveSection(tenant(req), key, body, "distilled");
+    res.json({ ok: true, body });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Voice "strength" — a single score + breakdown + the single best next thing to
+ * add. Drives onboarding and a quality gate. Pure computation over the current
+ * profile state (no LLM).
+ */
+app.get("/voice/strength", (req: Request, res: Response) => {
+  const t = tenant(req);
+  try {
+    const doc = loadSections(t);
+    const sectionsFilled = doc
+      ? SECTION_KEYS.filter((k) => (doc.sections[k]?.body ?? "").trim().length > 0).length
+      : 0;
+    const strength = computeStrength({
+      sectionsFilled,
+      sectionsTotal: SECTION_KEYS.length,
+      profileChars: getVoice(t).length,
+      contextConfirmed: getConfirmedContext(t).length,
+      feedbackCount: readFeedbackEntries(t).length,
+    });
+    res.json(strength);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
