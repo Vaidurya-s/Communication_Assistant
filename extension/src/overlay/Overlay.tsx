@@ -197,6 +197,12 @@ export function Overlay({ onClose, coldOpen }: Props) {
   // Deterministic voice-lint hits: words the user's profile says to avoid that
   // appear in the current draft.
   const [lintTerms, setLintTerms] = useState<string[]>([]);
+  // Explainability: the deterministic inputs that shaped the latest draft.
+  const [explain, setExplain] = useState<{
+    context_items: Array<{ type: string; title: string }>;
+    notes_used: number;
+    voice_chars: number;
+  } | null>(null);
 
   const previewRef = useRef<HTMLTextAreaElement>(null);
   // Edit-mining (opt-in): the model's last suggestion + whether capture is on,
@@ -323,6 +329,7 @@ export function Overlay({ onClose, coldOpen }: Props) {
         setMemorySaved(false);
         setFeedbackGiven(null);
         setShowFeedbackNote(false);
+        setExplain(null);
         const seed_text = mode === "shorter" || mode === "longer" ? preview : undefined;
         const steerVal = (opts?.steerOverride ?? steer).trim() || undefined;
 
@@ -376,6 +383,8 @@ export function Overlay({ onClose, coldOpen }: Props) {
             acc = ev.suggested_reply ?? acc;
             setPreview(acc);
             originalSuggestionRef.current = acc; // baseline for edit-mining
+            const ex = (ev.stats as { explain?: typeof explain } | undefined)?.explain;
+            setExplain(ex ?? null);
             setBackendHealth("online");
           } else if (ev.type === "insight") {
             setMemoryProposal(ev.memory_proposal ?? null);
@@ -680,6 +689,25 @@ export function Overlay({ onClose, coldOpen }: Props) {
                 </div>
               )}
 
+              {explain && (explain.context_items.length > 0 || explain.notes_used > 0) && status.kind !== "loading" && (
+                <details className="ca-explain">
+                  <summary>Why this draft?</summary>
+                  <div className="ca-explain-body">
+                    {explain.context_items.length > 0 && (
+                      <div>
+                        <span className="ca-muted">About you:</span>{" "}
+                        {explain.context_items.map((c) => c.title).join(", ")}
+                      </div>
+                    )}
+                    {explain.notes_used > 0 && (
+                      <div>
+                        <span className="ca-muted">Notes on this contact:</span> {explain.notes_used}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+
               {preview && status.kind !== "loading" && (
                 <div className="ca-feedback">
                   {feedbackGiven ? (
@@ -915,6 +943,25 @@ export function Overlay({ onClose, coldOpen }: Props) {
             <div className="ca-lint" title="From your own 'avoid' list in your voice profile">
               ⚠ You usually avoid: {lintTerms.map((t) => `“${t}”`).join(", ")}
             </div>
+          )}
+
+          {explain && (explain.context_items.length > 0 || explain.notes_used > 0) && status.kind !== "loading" && (
+            <details className="ca-explain">
+              <summary>Why this draft?</summary>
+              <div className="ca-explain-body">
+                {explain.context_items.length > 0 && (
+                  <div>
+                    <span className="ca-muted">About you:</span>{" "}
+                    {explain.context_items.map((c) => c.title).join(", ")}
+                  </div>
+                )}
+                {explain.notes_used > 0 && (
+                  <div>
+                    <span className="ca-muted">Notes on this contact:</span> {explain.notes_used}
+                  </div>
+                )}
+              </div>
+            </details>
           )}
 
           {/* Feedback on the current suggestion */}

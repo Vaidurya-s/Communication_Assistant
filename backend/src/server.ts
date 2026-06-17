@@ -270,6 +270,16 @@ app.post("/analyze", async (req: Request, res: Response) => {
     aboutMe,
   });
 
+  // Explainability ("why did it write this?"): the deterministic inputs that
+  // actually shaped this draft — which ABOUT ME items were injected, how many
+  // confirmed memory notes, and the voice-profile size. Returned in stats so the
+  // overlay can show "what shaped this" without guessing.
+  const explain = {
+    context_items: aboutMe.map((c) => ({ type: c.type, title: c.title })),
+    notes_used: existingNoteBodies.length,
+    voice_chars: getVoice(t).length,
+  };
+
   // Insight runs only on a real conversation (shorter/longer are pure rewrites).
   const runInsight = !!contactName && (mode === "suggest" || mode === "continue_draft" || mode === "follow_up");
   const computeInsight = () =>
@@ -310,7 +320,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
       });
       sse("reply_done", {
         suggested_reply: reply.text,
-        stats: { requested_mode: mode, resolved_mode: resolvedMode, llm_ms: reply.durationMs, provider: getProviderNameFor(t) },
+        stats: { requested_mode: mode, resolved_mode: resolvedMode, llm_ms: reply.durationMs, provider: getProviderNameFor(t), explain },
       });
       try {
         const ins = await computeInsight();
@@ -371,6 +381,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
       provider: getProviderNameFor(t),
       had_existing_notes: existingNoteBodies.length,
       insight_status: insightResult.status,
+      explain,
     },
   });
 });

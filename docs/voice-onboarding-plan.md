@@ -11,8 +11,10 @@ candidate correction — `editMining.ts` + `POST /voice/edits` + popup toggle, f
 into `feedback/apply`), and **profile versioning + revert** (every destructive
 op — compile/distill/apply — auto-snapshots the prior profile; `voiceVersions.ts` +
 `GET /voice/versions` + `POST /voice/versions/:id/restore` + console version history)
-are done. Remaining Phase 5: dashboard `voice:eval` + A/B, golden-thread guard,
-explainability.
+are done. **Explainability** (deterministic slice) is also done: `/analyze` returns
+an `explain` block (which ABOUT ME items were injected + memory-note count + voice
+size) in stats, and the overlay shows a "Why this draft?" expander. Remaining Phase 5
+(all LLM-harness-dependent): dashboard `voice:eval` + A/B, golden-thread guard.
 **Owner decisions captured (2026-06-17):** one unified system (voice + personal
 context); edited in the dashboard; cold-start via guided interview + paste corpus
 + infer-from-LinkedIn; runtime model = compile voice to a single file, context as

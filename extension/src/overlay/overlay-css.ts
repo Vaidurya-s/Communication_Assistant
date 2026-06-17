@@ -198,6 +198,14 @@ export const OVERLAY_CSS = `
   line-height: 1.35;
 }
 
+/* Explainability ("why this draft?") */
+.ca-explain { font-size: 11px; color: var(--text); }
+.ca-explain summary { cursor: pointer; color: var(--faint); list-style: none; }
+.ca-explain summary::-webkit-details-marker { display: none; }
+.ca-explain summary::before { content: "ℹ "; }
+.ca-explain[open] summary { color: var(--text); }
+.ca-explain-body { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; padding-left: 4px; }
+
 /* Feedback */
 .ca-feedback { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .ca-feedback-note { display: flex; flex-direction: column; gap: 6px; width: 100%; }
