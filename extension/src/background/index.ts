@@ -22,11 +22,20 @@ interface SessionState {
   lastResponse: BackendResponse | null;
 }
 
-const state: SessionState = {
-  lastContext: null,
-  lastDiagnostics: null,
-  lastResponse: null,
-};
+// Per-tab session state. Each LinkedIn/Gmail tab drafts INDEPENDENTLY, so its
+// extracted context, diagnostics, and last reply are keyed by tabId. A single
+// shared object would let several open threads overwrite each other — drafting
+// in tab B would clobber tab A's context and the wrong thread would be answered.
+// Keying by tabId is what lets you work 5 conversations at once.
+const sessions = new Map<number, SessionState>();
+function sessionFor(tabId: number): SessionState {
+  let s = sessions.get(tabId);
+  if (!s) {
+    s = { lastContext: null, lastDiagnostics: null, lastResponse: null };
+    sessions.set(tabId, s);
+  }
+  return s;
+}
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -148,8 +157,9 @@ interface PrefetchEntry {
   resp: BackendResponse;
 }
 const PREFETCH_TTL_MS = 2 * 60 * 1000;
-let prefetch: PrefetchEntry | null = null;
-let prefetchInFlight = false;
+// Per-tab: each tab can have its own speculative draft in flight / cached.
+const prefetches = new Map<number, PrefetchEntry>();
+const prefetchInFlight = new Set<number>();
 
 // A thread's state fingerprint: title + message count + draft length. Any new
 // message or draft edit changes this, so a stale prefetch can never match.
@@ -179,41 +189,43 @@ async function getHealth(): Promise<HealthInfo | null> {
   }
 }
 
-async function maybePrefetch(ctx: ConversationContext): Promise<void> {
-  if (prefetchInFlight) return;
+async function maybePrefetch(tabId: number, ctx: ConversationContext): Promise<void> {
+  if (prefetchInFlight.has(tabId)) return;
   const health = await getHealth();
   // Off unless explicitly enabled, and never onto the un-primable slow CLI.
   if (!health || !health.prefetch || health.provider === "gemini-cli") return;
   const key = prefetchKey(ctx);
-  if (prefetch && prefetch.key === key && Date.now() - prefetch.at < PREFETCH_TTL_MS) return;
-  prefetchInFlight = true;
+  const existing = prefetches.get(tabId);
+  if (existing && existing.key === key && Date.now() - existing.at < PREFETCH_TTL_MS) return;
+  prefetchInFlight.add(tabId);
   try {
     const resp = await postToBackend(ctx, "suggest", undefined, undefined);
-    prefetch = { key, at: Date.now(), resp };
+    prefetches.set(tabId, { key, at: Date.now(), resp });
   } catch {
     /* best-effort: a failed prefetch just means the real click runs normally */
   } finally {
-    prefetchInFlight = false;
+    prefetchInFlight.delete(tabId);
   }
 }
 
-// Consume a prefetched draft if it matches this exact thread state and request.
-// Single-use: a draft is served at most once, then discarded.
+// Consume this tab's prefetched draft if it matches the exact thread state and
+// request. Single-use: served at most once, then discarded.
 function takePrefetch(
+  tabId: number,
   ctx: ConversationContext,
   mode: AnalyzeRequest["mode"],
   seed: string | undefined,
   steer: string | undefined,
 ): BackendResponse | null {
   if (mode !== "suggest" || seed || steer) return null; // only the plain first draft
-  if (!prefetch) return null;
-  if (prefetch.key !== prefetchKey(ctx) || Date.now() - prefetch.at > PREFETCH_TTL_MS) {
-    prefetch = null;
+  const entry = prefetches.get(tabId);
+  if (!entry) return null;
+  if (entry.key !== prefetchKey(ctx) || Date.now() - entry.at > PREFETCH_TTL_MS) {
+    prefetches.delete(tabId);
     return null;
   }
-  const resp = prefetch.resp;
-  prefetch = null;
-  return resp;
+  prefetches.delete(tabId);
+  return entry.resp;
 }
 
 /**
@@ -257,10 +269,11 @@ async function resolveAnalyzeContext(
   req: AnalyzeRequest,
   tab: chrome.tabs.Tab,
 ): Promise<ConversationContext> {
+  const session = sessionFor(tab.id!);
   if (req.mode === "cold_open") {
     await ensureContentScriptInjected(tab);
     const ctx = await requestColdOpenContext(tab.id!);
-    state.lastContext = ctx;
+    session.lastContext = ctx;
     return ctx;
   }
   let ctx: ConversationContext;
@@ -268,28 +281,31 @@ async function resolveAnalyzeContext(
     await ensureContentScriptInjected(tab);
     const extracted = await requestExtractFromContent(tab.id!);
     ctx = extracted.context;
-    state.lastContext = ctx;
-    state.lastDiagnostics = extracted.diagnostics;
-  } else if (state.lastContext) {
-    ctx = state.lastContext;
+    session.lastContext = ctx;
+    session.lastDiagnostics = extracted.diagnostics;
+  } else if (session.lastContext) {
+    // shorter/longer reuse THIS tab's last context (not some other tab's).
+    ctx = session.lastContext;
   } else {
     await ensureContentScriptInjected(tab);
     const extracted = await requestExtractFromContent(tab.id!);
     ctx = extracted.context;
-    state.lastContext = ctx;
-    state.lastDiagnostics = extracted.diagnostics;
+    session.lastContext = ctx;
+    session.lastDiagnostics = extracted.diagnostics;
   }
   return attachContactProfile(ctx);
 }
 
-async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
-  const tab = await getActiveTab();
+async function handleAnalyze(
+  req: AnalyzeRequest,
+  tab: chrome.tabs.Tab | null,
+): Promise<RuntimeMessage> {
   if (!tab || tab.id === undefined) return { type: "ERROR", message: "no active tab" };
 
   try {
     const ctx = await resolveAnalyzeContext(req, tab);
     const resp = await postToBackend(ctx, req.mode, req.seed_text, req.steer);
-    state.lastResponse = resp;
+    sessionFor(tab.id).lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
   } catch (err) {
     return { type: "ERROR", message: (err as Error).message };
@@ -326,11 +342,17 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
     }
   };
 
-  const tab = await getActiveTab();
+  // Use the tab that OPENED this Port (the overlay's own tab), not the active
+  // tab — so a draft started in a background tab answers that tab's thread, and
+  // five tabs streaming at once never cross-wire. Falls back to the active tab
+  // only if the sender is somehow missing.
+  const tab = port.sender?.tab ?? (await getActiveTab());
   if (!tab || tab.id === undefined) {
-    send({ type: "error", message: "no active tab" });
+    send({ type: "error", message: "no originating tab" });
     return;
   }
+  const tabId = tab.id;
+  const session = sessionFor(tabId);
 
   let ctx: ConversationContext;
   try {
@@ -341,9 +363,9 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
   }
 
   // Instant path: a speculative prefetch already drafted this exact thread state.
-  const cached = takePrefetch(ctx, req.mode, req.seed_text, req.steer);
+  const cached = takePrefetch(tabId, ctx, req.mode, req.seed_text, req.steer);
   if (cached) {
-    state.lastResponse = cached;
+    session.lastResponse = cached;
     send({ type: "reply_done", suggested_reply: cached.suggested_reply, stats: cached.stats });
     send({ type: "insight", memory_proposal: cached.memory_proposal, strategy: cached.strategy });
     send({ type: "done" });
@@ -380,7 +402,7 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
     // final batch so the overlay's streaming consumer still works unchanged.
     try {
       const j = (await res.json()) as BackendResponse;
-      state.lastResponse = j;
+      session.lastResponse = j;
       send({ type: "reply_done", suggested_reply: j.suggested_reply, stats: j.stats });
       send({ type: "insight", memory_proposal: j.memory_proposal, strategy: j.strategy });
       send({ type: "done" });
@@ -424,7 +446,7 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
       }
     }
     if (lastReply) {
-      state.lastResponse = { suggested_reply: lastReply, memory_proposal: null, strategy: null };
+      session.lastResponse = { suggested_reply: lastReply, memory_proposal: null, strategy: null };
     }
   } catch (err) {
     send({ type: "error", message: (err as Error).message });
@@ -485,9 +507,9 @@ async function handleComposeIntro(req: {
   };
 
   try {
+    // Popup-initiated and out-of-band (no LinkedIn tab) — the popup renders the
+    // result itself, so there's no tab session to persist into.
     const resp = await postToBackend(ctx, "cold_open", "", req.intent ?? "");
-    state.lastContext = ctx;
-    state.lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
   } catch (err) {
     return { type: "ERROR", message: (err as Error).message };
@@ -548,9 +570,22 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+// Free a tab's session + any pending prefetch when it closes, so state doesn't
+// accumulate as you open and close conversations.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  sessions.delete(tabId);
+  prefetches.delete(tabId);
+  prefetchInFlight.delete(tabId);
+});
+
 chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse) => {
   if (msg.type === "ANALYZE_REQUEST") {
-    handleAnalyze(msg).then(sendResponse);
+    // Prefer the tab the request came FROM (the overlay's own tab); fall back to
+    // the active tab for callers without a tab (e.g. popup).
+    const fromTab = sender.tab ?? null;
+    (fromTab ? Promise.resolve(fromTab) : getActiveTab()).then((tab) =>
+      handleAnalyze(msg, tab).then(sendResponse),
+    );
     return true;
   }
 
@@ -570,23 +605,34 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse)
   }
 
   if (msg.type === "STATUS_REQUEST") {
-    const resp: RuntimeMessage = {
-      type: "STATUS_RESPONSE",
-      lastContext: state.lastContext,
-      lastDiagnostics: state.lastDiagnostics,
-      lastResponse: state.lastResponse,
+    // Report the requesting tab's own session (each overlay sees only its thread).
+    const reply = (tabId: number | undefined) => {
+      const s = tabId !== undefined ? sessions.get(tabId) : undefined;
+      sendResponse({
+        type: "STATUS_RESPONSE",
+        lastContext: s?.lastContext ?? null,
+        lastDiagnostics: s?.lastDiagnostics ?? null,
+        lastResponse: s?.lastResponse ?? null,
+      });
     };
-    sendResponse(resp);
-    return false;
+    if (sender.tab?.id !== undefined) {
+      reply(sender.tab.id);
+      return false;
+    }
+    getActiveTab().then((t) => reply(t?.id ?? undefined));
+    return true; // async: resolving the active tab for a tab-less caller
   }
 
   if (msg.type === "CONTEXT_EXTRACTED") {
-    if (msg.trigger === "observer") {
-      state.lastContext = msg.payload;
-      state.lastDiagnostics = msg.diagnostics;
+    // Store against the tab that extracted it, and prefetch for that tab only.
+    if (msg.trigger === "observer" && sender.tab?.id !== undefined) {
+      const tabId = sender.tab.id;
+      const s = sessionFor(tabId);
+      s.lastContext = msg.payload;
+      s.lastDiagnostics = msg.diagnostics;
       // Thread opened/changed — speculatively draft a Suggest so the first click
       // is instant (no-op unless the backend has prefetch on + a fast provider).
-      void maybePrefetch(msg.payload);
+      void maybePrefetch(tabId, msg.payload);
     }
     return false;
   }
