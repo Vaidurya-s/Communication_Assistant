@@ -13,15 +13,19 @@ describe("presets", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("gives every key-required preset a base URL", () => {
+  it("gives every key-required HTTP (openai-compat) preset a base URL", () => {
     for (const p of PRESETS) {
-      if (p.keyRequired) expect(p.baseUrl.length).toBeGreaterThan(0);
+      // The native `anthropic` provider needs a key but no base URL; only the
+      // openai-compat HTTP providers require one.
+      if (p.keyRequired && p.provider === "openai-compat") {
+        expect(p.baseUrl.length).toBeGreaterThan(0);
+      }
     }
   });
 
   it("uses only valid provider names", () => {
     for (const p of PRESETS) {
-      expect(["gemini-cli", "openai-compat"]).toContain(p.provider);
+      expect(["gemini-cli", "openai-compat", "anthropic"]).toContain(p.provider);
     }
   });
 });

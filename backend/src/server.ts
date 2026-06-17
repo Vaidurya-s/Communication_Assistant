@@ -1,9 +1,10 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import { resolve } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { runLLM, getProviderName, getProviderNameFor, resetProvider, resetProviderFor } from "./llm/index.js";
 import { createOpenAiCompatProvider } from "./llm/openai-compat.js";
+import { createAnthropicProvider } from "./llm/anthropic.js";
 import { getConfig, reloadConfig, type ProviderName } from "./config.js";
 import { writeEnv } from "./envFile.js";
 import { PRESETS, findPreset } from "./presets.js";
@@ -39,6 +40,24 @@ import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
 import { exportTenant, purgeTenant } from "./tenantData.js";
 import { checkRate } from "./rateLimit.js";
+import {
+  addContextItem,
+  confirmContextItem,
+  deleteContextItem,
+  getConfirmedContext,
+  getContextItems,
+  updateContextItem,
+  type ContextType,
+} from "./context.js";
+import {
+  SECTION_KEYS,
+  adoptExisting,
+  compileSections,
+  loadSections,
+  saveSection,
+  type SectionKey,
+} from "./voiceSections.js";
+import { distill } from "./voiceDistill.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -192,18 +211,22 @@ app.post("/analyze", async (req: Request, res: Response) => {
     }
   }
 
-  const { instruction, context, resolvedMode, transcript } = buildPrompt({
+  const { instruction, context, staticPrefix, resolvedMode, transcript } = buildPrompt({
     ctx,
     voiceProfile: getVoice(t),
     mode,
     seedText,
     steer,
     existingNotes: existingNoteBodies,
+    // Trusted "ABOUT ME" substance (confirmed projects/achievements/bio). Gives
+    // replies — especially cold-open first messages — real things to reference.
+    aboutMe: getConfirmedContext(t).map((c) => ({ type: c.type, title: c.title, body: c.body })),
   });
 
   // Fire reply + insight in parallel. Insight is run on the FULL transcript
-  // regardless of mode (it always benefits from full context).
-  const replyPromise = runLLM(instruction, context, { tenantId: t });
+  // regardless of mode (it always benefits from full context). staticPrefix lets
+  // a caching provider (anthropic) cache the voice profile across drafts.
+  const replyPromise = runLLM(instruction, context, { tenantId: t, staticPrefix });
 
   // Only run insight when we have a real conversation to analyze. shorter/formal
   // are pure rewrites — they shouldn't trigger memory updates.
@@ -409,6 +432,153 @@ app.get("/voice", (req: Request, res: Response) => {
   }
 });
 
+// --- Personal context ("ABOUT ME": projects / achievements / bio / goals) ---
+//
+// Trusted substance the assistant can reference in replies (esp. cold-opens).
+// Only confirmed items are injected into prompts (see getConfirmedContext); the
+// confirm gate mirrors memory notes.
+
+const CONTEXT_TYPES: ReadonlySet<string> = new Set(["project", "achievement", "bio", "looking_for"]);
+
+app.get("/context", (req: Request, res: Response) => {
+  try {
+    const items = getContextItems(tenant(req), { includeUnconfirmed: true });
+    const grouped: Record<string, typeof items> = {};
+    for (const it of items) (grouped[it.type] ??= []).push(it);
+    res.json({ items, grouped });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post("/context", (req: Request, res: Response) => {
+  const { type, title, body, tags, confirmed } = req.body ?? {};
+  if (!CONTEXT_TYPES.has(type)) {
+    res.status(400).json({ error: "type must be one of project|achievement|bio|looking_for" });
+    return;
+  }
+  try {
+    const id = addContextItem(tenant(req), {
+      type: type as ContextType,
+      title: typeof title === "string" ? title : "",
+      body: typeof body === "string" ? body : "",
+      tags: Array.isArray(tags) ? tags.filter((t) => typeof t === "string") : undefined,
+      confirmed: confirmed === 0 ? 0 : 1,
+    });
+    res.json({ id });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.put("/context/:id", (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: "id must be an integer" });
+    return;
+  }
+  const { title, body, tags } = req.body ?? {};
+  try {
+    const ok = updateContextItem(tenant(req), id, {
+      title: typeof title === "string" ? title : undefined,
+      body: typeof body === "string" ? body : undefined,
+      tags: Array.isArray(tags) ? tags.filter((t) => typeof t === "string") : undefined,
+    });
+    if (!ok) {
+      res.status(404).json({ error: "context item not found" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.delete("/context/:id", (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: "id must be an integer" });
+    return;
+  }
+  const deleted = deleteContextItem(tenant(req), id);
+  if (!deleted) {
+    res.status(404).json({ error: "context item not found" });
+    return;
+  }
+  res.json({ ok: true, deleted });
+});
+
+app.post("/context/:id/confirm", (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: "id must be an integer" });
+    return;
+  }
+  const ok = confirmContextItem(tenant(req), id);
+  res.json({ ok });
+});
+
+// --- Voice authoring (sections + in-browser distill, compiles to runtime file) ---
+
+app.get("/voice/sections", (req: Request, res: Response) => {
+  const t = tenant(req);
+  try {
+    // No sections yet but a compiled profile exists → adopt it so nothing is lost.
+    const doc = loadSections(t) ?? adoptExisting(t);
+    res.json({ keys: SECTION_KEYS, sections: doc.sections, updated_at: doc.updatedAt });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.put("/voice/sections/:key", (req: Request, res: Response) => {
+  const key = req.params.key as SectionKey;
+  if (!SECTION_KEYS.includes(key)) {
+    res.status(400).json({ error: `unknown section '${key}'` });
+    return;
+  }
+  const { body } = req.body ?? {};
+  if (typeof body !== "string") {
+    res.status(400).json({ error: "body (string) required" });
+    return;
+  }
+  try {
+    saveSection(tenant(req), key, body, "manual");
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post("/voice/compile", (req: Request, res: Response) => {
+  const t = tenant(req);
+  try {
+    const compiled = compileSections(t);
+    voiceCache.delete(t); // the runtime artifact changed
+    res.json({ ok: true, chars: compiled.length });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Distill a voice profile from pasted messages (the in-browser `init-voice`).
+ * Writes the result straight to the runtime strategy_analysis.md and busts the
+ * voice cache. Body: { corpusText?: string } — falls back to raw_corpus/ on disk.
+ */
+app.post("/voice/distill", async (req: Request, res: Response) => {
+  const t = tenant(req);
+  const corpusText = typeof req.body?.corpusText === "string" ? req.body.corpusText : undefined;
+  try {
+    const markdown = await distill(t, { corpusText });
+    writeFileSync(voiceProfilePath(t), markdown, "utf-8");
+    voiceCache.delete(t);
+    res.json({ ok: true, chars: markdown.length });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // --- Data lifecycle (H5): portability + erasure --------------------------
 
 /** Full export of the caller's tenant data (GDPR-style portability). */
@@ -531,6 +701,10 @@ function buildConfigPayload() {
       temperature: cfg.openai.temperature ?? null,
       apiKeyMasked: maskKey(cfg.openai.apiKey),
     },
+    anthropic: {
+      model: cfg.anthropic.model,
+      apiKeyMasked: maskKey(cfg.anthropic.apiKey),
+    },
     timeoutMs: cfg.timeoutMs,
     presets: PRESETS,
   };
@@ -548,14 +722,20 @@ function resolveSettings(body: Record<string, unknown>): {
 } | { error: string } {
   const preset = typeof body.preset === "string" ? findPreset(body.preset) : undefined;
   let provider: ProviderName | undefined = preset?.provider;
-  if (!provider && (body.provider === "openai-compat" || body.provider === "gemini-cli")) {
+  if (
+    !provider &&
+    (body.provider === "openai-compat" || body.provider === "gemini-cli" || body.provider === "anthropic")
+  ) {
     provider = body.provider;
   }
   if (!provider) return { error: "unknown provider or preset" };
 
   const cfg = getConfig();
   const incomingKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-  const apiKey = incomingKey || cfg.openai.apiKey; // blank → keep existing
+  // Fall back to the provider's own stored key/model when the body omits them.
+  const storedKey = provider === "anthropic" ? cfg.anthropic.apiKey : cfg.openai.apiKey;
+  const apiKey = incomingKey || storedKey; // blank → keep existing
+  const storedModel = provider === "anthropic" ? cfg.anthropic.model : cfg.openai.model;
 
   const baseUrlRaw =
     typeof body.baseUrl === "string" && body.baseUrl.trim()
@@ -566,7 +746,7 @@ function resolveSettings(body: Record<string, unknown>): {
   const model =
     typeof body.model === "string" && body.model.trim()
       ? body.model.trim()
-      : preset?.models?.[0] || cfg.openai.model;
+      : preset?.models?.[0] || storedModel;
 
   let temperature: number | undefined;
   if (typeof body.temperature === "number" && Number.isFinite(body.temperature)) {
@@ -580,6 +760,9 @@ function resolveSettings(body: Record<string, unknown>): {
   if (provider === "openai-compat") {
     if (!baseUrl) return { error: "baseUrl required for an HTTP provider" };
     if (preset?.keyRequired && !apiKey) return { error: `${preset.label} requires an API key` };
+  }
+  if (provider === "anthropic" && !apiKey) {
+    return { error: "Anthropic (native) requires an API key" };
   }
 
   return { provider, baseUrl, model, apiKey, temperature, timeoutMs };
@@ -597,15 +780,18 @@ app.post("/config", (req: Request, res: Response) => {
   }
 
   const updates: Record<string, string> = { LLM_PROVIDER: resolved.provider };
+  const suppliedKey =
+    typeof req.body?.apiKey === "string" && req.body.apiKey.trim() ? req.body.apiKey.trim() : "";
   if (resolved.provider === "openai-compat") {
     updates.OPENAI_BASE_URL = resolved.baseUrl;
     updates.OPENAI_MODEL = resolved.model;
     // Only write the key if the user actually supplied one — never clobber a
     // stored key with empty.
-    if (typeof req.body?.apiKey === "string" && req.body.apiKey.trim()) {
-      updates.OPENAI_API_KEY = req.body.apiKey.trim();
-    }
+    if (suppliedKey) updates.OPENAI_API_KEY = suppliedKey;
     if (resolved.temperature !== undefined) updates.OPENAI_TEMPERATURE = String(resolved.temperature);
+  } else if (resolved.provider === "anthropic") {
+    updates.ANTHROPIC_MODEL = resolved.model;
+    if (suppliedKey) updates.ANTHROPIC_API_KEY = suppliedKey;
   }
   if (resolved.timeoutMs !== undefined) updates.LLM_TIMEOUT_MS = String(resolved.timeoutMs);
 
@@ -638,13 +824,16 @@ app.post("/config/test", async (req: Request, res: Response) => {
     });
     return;
   }
-  const probe = createOpenAiCompatProvider({
-    baseUrl: resolved.baseUrl,
-    apiKey: resolved.apiKey,
-    model: resolved.model,
-    temperature: undefined,
-    timeoutMs: 20_000,
-  });
+  const probe =
+    resolved.provider === "anthropic"
+      ? createAnthropicProvider({ apiKey: resolved.apiKey, model: resolved.model, timeoutMs: 20_000 })
+      : createOpenAiCompatProvider({
+          baseUrl: resolved.baseUrl,
+          apiKey: resolved.apiKey,
+          model: resolved.model,
+          temperature: undefined,
+          timeoutMs: 20_000,
+        });
   const start = Date.now();
   try {
     await probe.run("Reply with the single word OK.", "ping");

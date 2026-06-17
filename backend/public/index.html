@@ -49,6 +49,10 @@
             <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><rect x="9" y="3.5" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             <span class="nav-label">Voice profile</span>
           </button>
+          <button class="nav-item" data-view="about">
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 19.5c.5-3.4 3-5.2 6.5-5.2s6 1.8 6.5 5.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="nav-label">About me</span>
+          </button>
           <button class="nav-item" data-view="activity">
             <svg class="nav-ico" viewBox="0 0 24 24" fill="none"><path d="M3.5 13h3l2-6 3.5 11 2.5-7 1.5 2h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="nav-label">Activity</span>
@@ -139,10 +143,19 @@
           <div id="voiceContent"></div>
         </section>
 
+        <!-- ABOUT ME -->
+        <section id="view-about" class="view">
+          <header class="view-head">
+            <div><span class="kicker">Console / 05</span><h1>About me</h1></div>
+            <button class="btn ghost small" id="refreshAbout"><span class="btn-ico">↻</span> Refresh</button>
+          </header>
+          <div id="aboutContent"></div>
+        </section>
+
         <!-- ACTIVITY -->
         <section id="view-activity" class="view">
           <header class="view-head">
-            <div><span class="kicker">Console / 05</span><h1>Activity</h1></div>
+            <div><span class="kicker">Console / 06</span><h1>Activity</h1></div>
             <button class="btn ghost small" id="refreshActivity"><span class="btn-ico">↻</span> Refresh</button>
           </header>
           <div class="filter-row" id="activityFilter">
@@ -164,7 +177,7 @@
 
         <!-- SETTINGS -->
         <section id="view-settings" class="view">
-          <header class="view-head"><div><span class="kicker">Console / 06</span><h1>Settings</h1></div></header>
+          <header class="view-head"><div><span class="kicker">Console / 07</span><h1>Settings</h1></div></header>
           <div class="panel settings-card">
             <div class="panel-head"><h2>LLM provider</h2><span class="panel-kick">Engine</span></div>
             <p class="muted">

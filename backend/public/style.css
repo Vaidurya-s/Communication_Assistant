@@ -382,6 +382,38 @@ h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .fb-note { margin-top: 5px; }
 .fb-sug { margin-top: 5px; font-style: italic; }
 
+/* Voice — editor */
+.mono { font-family: "JetBrains Mono", monospace; }
+.compile-bar { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.compile-bar .voice-doc { margin-top: 14px; }
+.vsec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-top: 14px; }
+.vsec { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; }
+.vsec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.vsec-title { font-weight: 600; }
+.vsec-body, #corpusText, .ctx-body, .ctx-title, .ctx-tags {
+  width: 100%; padding: 9px 11px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 9px; color: var(--text); font: inherit; resize: vertical;
+}
+.vsec-body:focus, #corpusText:focus, .ctx-body:focus, .ctx-title:focus, .ctx-tags:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.vsec-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.distill-panel summary { cursor: pointer; font-weight: 600; padding: 4px 0; list-style: none; }
+.distill-panel summary::-webkit-details-marker { display: none; }
+.distill-panel summary::before { content: "▸ "; color: var(--faint); }
+.distill-panel[open] summary::before { content: "▾ "; }
+.distill-panel #corpusText { margin-top: 12px; }
+
+/* About me — context cards */
+.ctx-group .panel-head { margin-bottom: 8px; }
+.ctx-list { display: flex; flex-direction: column; gap: 12px; }
+.ctx-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 9px; }
+.ctx-item.pending { border-color: color-mix(in srgb, var(--warn) 50%, var(--border)); }
+.ctx-item-head { display: flex; align-items: center; gap: 10px; }
+.ctx-item-head .ctx-title { font-weight: 600; }
+.ctx-tags { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.ctx-actions { display: flex; gap: 5px; justify-content: flex-end; }
+
 /* ---- Activity ------------------------------------------------------------ */
 #activityFilter { margin-bottom: 18px; }
 .timeline-row { position: relative; padding: 12px 0 12px 20px; margin-left: 6px; border-left: 2px solid var(--border); }

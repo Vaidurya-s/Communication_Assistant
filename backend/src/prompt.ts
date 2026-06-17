@@ -51,6 +51,13 @@ export interface BuildPromptInput {
    * directive, OUTSIDE the untrusted boundary.
    */
   steer?: string;
+  /**
+   * Confirmed personal-context items ("ABOUT ME": projects, achievements, bio,
+   * what I'm looking for). Trusted — the user authored and confirmed them — so
+   * they're injected OUTSIDE the untrusted boundary, like memory notes. Empty/
+   * undefined → section omitted. Gives replies (esp. cold-opens) real substance.
+   */
+  aboutMe?: Array<{ type: string; title: string; body: string }>;
 }
 
 const MAX_MESSAGES = 30;
@@ -147,7 +154,38 @@ function untrustedConversationBlock(args: {
   ].join("\n");
 }
 
-export function buildPrompt(input: BuildPromptInput): { instruction: string; context: string; resolvedMode: Mode; transcript: string } {
+/** Group confirmed context items into a trusted "ABOUT ME" block. */
+function aboutMeSection(items: BuildPromptInput["aboutMe"]): string[] {
+  if (!items || items.length === 0) return [];
+  const labels: Record<string, string> = {
+    project: "Projects",
+    achievement: "Achievements",
+    bio: "Bio",
+    looking_for: "What I'm looking for",
+  };
+  const order = ["project", "achievement", "bio", "looking_for"];
+  const lines: string[] = [
+    "",
+    "=== ABOUT ME (trusted — facts about myself I can reference when it's natural) ===",
+  ];
+  for (const type of order) {
+    const group = items.filter((i) => i.type === type);
+    if (group.length === 0) continue;
+    lines.push(`${labels[type] ?? type}:`);
+    for (const it of group) {
+      lines.push(it.title ? `- ${it.title}: ${it.body}` : `- ${it.body}`);
+    }
+  }
+  return lines;
+}
+
+export function buildPrompt(input: BuildPromptInput): {
+  instruction: string;
+  context: string;
+  staticPrefix: string;
+  resolvedMode: Mode;
+  transcript: string;
+} {
   const { ctx, voiceProfile, seedText, existingNotes } = input;
   const messages = (ctx.messages ?? []).slice(-MAX_MESSAGES);
 
@@ -167,7 +205,23 @@ export function buildPrompt(input: BuildPromptInput): { instruction: string; con
 
   const resolvedMode = resolveMode(input.mode, seed, draft);
 
-  // TRUSTED sections (outside the untrusted boundary).
+  // STATIC PREFIX — byte-stable per tenant (voice profile + standing workspace
+  // note). Kept contiguous at the FRONT so a caching provider (anthropic) can
+  // mark it with a cache_control breakpoint and skip re-processing it on every
+  // draft. Anything that varies per request (memory, ABOUT ME, the conversation)
+  // must come AFTER it, or the cache prefix changes and never hits.
+  const staticPrefix = [
+    "=== VOICE PROFILE (how I write — match this voice) ===",
+    voiceProfile,
+    "",
+    "=== AVAILABLE FILES IN YOUR WORKSPACE ===",
+    "linkedin_successful_messages.md — a corpus of my real past LinkedIn messages.",
+    "Use your Grep/Read tools on this file IF you want to see how I phrased",
+    "something specific. Otherwise the VOICE PROFILE alone is sufficient.",
+  ].join("\n");
+
+  // VARIABLE remainder — TRUSTED sections (memory, ABOUT ME) outside the
+  // untrusted boundary, then the untrusted conversation block.
   const memorySection = existingNotes && existingNotes.length > 0
     ? [
         "",
@@ -184,18 +238,17 @@ export function buildPrompt(input: BuildPromptInput): { instruction: string; con
     contact_profile: ctx.contact_profile ?? null,
   });
 
-  const context = [
-    "=== VOICE PROFILE (how I write — match this voice) ===",
-    voiceProfile,
+  const variable = [
     ...memorySection,
-    "",
-    "=== AVAILABLE FILES IN YOUR WORKSPACE ===",
-    "linkedin_successful_messages.md — a corpus of my real past LinkedIn messages.",
-    "Use your Grep/Read tools on this file IF you want to see how I phrased",
-    "something specific. Otherwise the VOICE PROFILE alone is sufficient.",
+    ...aboutMeSection(input.aboutMe),
     "",
     untrustedBlock,
-  ].join("\n");
+  ].join("\n").replace(/^\n+/, "");
+
+  // Full context = static prefix + variable. Non-caching providers (gemini-cli,
+  // openai-compat) use this as-is; the anthropic provider strips the prefix off
+  // and caches it separately (see opts.staticPrefix).
+  const context = `${staticPrefix}\n\n${variable}`;
 
   let instruction = instructionFor(resolvedMode, seed, draft);
 
@@ -206,5 +259,5 @@ export function buildPrompt(input: BuildPromptInput): { instruction: string; con
       `\n\nADDITIONAL INSTRUCTION FROM ME (your user — trusted, follow it): ${steer}`;
   }
 
-  return { instruction, context, resolvedMode, transcript };
+  return { instruction, context, staticPrefix, resolvedMode, transcript };
 }

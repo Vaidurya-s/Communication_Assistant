@@ -1,6 +1,7 @@
 import { getConfig } from "../config.js";
 import { createGeminiCliProvider } from "./gemini-cli.js";
 import { createOpenAiCompatProvider } from "./openai-compat.js";
+import { createAnthropicProvider } from "./anthropic.js";
 import { DEFAULT_TENANT } from "../tenant.js";
 import { getTenantLLM } from "../secrets.js";
 import type { LLMProvider, LLMResult, LLMRunOptions } from "./types.js";
@@ -26,6 +27,16 @@ function getProvider(): LLMProvider {
       timeoutMs: cfg.timeoutMs,
     });
     console.log(`[llm] provider=openai-compat base=${cfg.openai.baseUrl} model=${cfg.openai.model}`);
+  } else if (cfg.provider === "anthropic") {
+    if (!cfg.anthropic.apiKey) {
+      console.warn("[llm] ANTHROPIC_API_KEY is empty — the native Anthropic API will reject requests.");
+    }
+    provider = createAnthropicProvider({
+      apiKey: cfg.anthropic.apiKey,
+      model: cfg.anthropic.model,
+      timeoutMs: cfg.timeoutMs,
+    });
+    console.log(`[llm] provider=anthropic model=${cfg.anthropic.model}`);
   } else {
     provider = createGeminiCliProvider(cfg.timeoutMs);
     console.log("[llm] provider=gemini-cli");

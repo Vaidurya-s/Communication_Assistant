@@ -43,12 +43,12 @@ export const PRESETS: ProviderPreset[] = [
   },
   {
     id: "anthropic",
-    label: "Anthropic (Claude)",
-    baseUrl: "https://api.anthropic.com/v1",
-    models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-3-5-haiku-latest"],
+    label: "Anthropic (Claude) — cached",
+    baseUrl: "",
+    models: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"],
     keyRequired: true,
-    provider: "openai-compat",
-    note: "Anthropic's OpenAI-compatible endpoint.",
+    provider: "anthropic",
+    note: "Native API with prompt caching — fastest, primes the voice profile. Haiku 4.5 is the quickest for drafting.",
   },
   {
     id: "gemini-api",

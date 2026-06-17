@@ -31,10 +31,11 @@ function loadDotenv(): void {
 
 loadDotenv();
 
-export type ProviderName = "gemini-cli" | "openai-compat";
+export type ProviderName = "gemini-cli" | "openai-compat" | "anthropic";
 
 function parseProvider(raw: string | undefined): ProviderName {
   if (raw === "openai-compat") return "openai-compat";
+  if (raw === "anthropic") return "anthropic";
   return "gemini-cli";
 }
 
@@ -63,6 +64,11 @@ export interface Config {
     model: string;
     temperature: number | undefined;
   };
+  /** Native Anthropic provider (prompt caching). Used when provider="anthropic". */
+  anthropic: {
+    apiKey: string;
+    model: string;
+  };
   /**
    * When true, every data route requires a valid bearer token (hosted mode).
    * When false (default), unauthenticated requests act as the 'local' tenant,
@@ -87,6 +93,10 @@ export function getConfig(): Config {
       apiKey: process.env.OPENAI_API_KEY ?? "",
       model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
       temperature: parseFloat0(process.env.OPENAI_TEMPERATURE),
+    },
+    anthropic: {
+      apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+      model: process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5",
     },
     requireAuth: parseBool(process.env.COMMS_REQUIRE_AUTH),
     corsOrigins: process.env.COMMS_CORS_ORIGINS ?? "*",

@@ -144,10 +144,11 @@ const LOADERS = {
   contacts: loadContacts,
   followups: loadFollowups,
   voice: loadVoice,
+  about: loadAbout,
   activity: loadActivity,
   settings: loadConfig,
 };
-const ROUTES = ["overview", "contacts", "followups", "voice", "activity", "settings"];
+const ROUTES = ["overview", "contacts", "followups", "voice", "about", "activity", "settings"];
 function show(view) {
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $$(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
@@ -488,11 +489,44 @@ async function loadFollowups() {
 $("#refreshFollowups").addEventListener("click", loadFollowups);
 
 // ---------------------------------------------------------------- Voice
+// Friendly labels for the editable section keys (see GET /voice/sections).
+const VOICE_LABELS = {
+  openers: "How I open",
+  rhythm: "Sentence length & rhythm",
+  disagreeing: "How I disagree",
+  questions: "How I ask questions",
+  closings: "How I close",
+  registers: "Register shifts",
+  vocabulary: "Vocabulary (use / avoid)",
+  declining: "How I decline",
+};
+
 async function loadVoice() {
   const el = $("#voiceContent");
   el.innerHTML = `<div class="muted">Loading…</div>`;
-  let v;
-  try { v = await api("/voice"); } catch (err) { el.innerHTML = `<div class="status err">${esc(err.message)}</div>`; return; }
+  let v, s;
+  try {
+    [v, s] = await Promise.all([api("/voice"), api("/voice/sections")]);
+  } catch (err) { el.innerHTML = `<div class="status err">${esc(err.message)}</div>`; return; }
+
+  const keys = s.keys || [];
+  const sections = s.sections || {};
+
+  // Section cards — one editable textarea + Save per key.
+  const cards = keys.map((key) => {
+    const sec = sections[key] || { body: "", source: "" };
+    const label = VOICE_LABELS[key] || key;
+    return `<div class="vsec" data-key="${esc(key)}">
+      <div class="vsec-head">
+        <div class="vsec-title">${esc(label)} <span class="muted small mono">${esc(key)}</span></div>
+        ${sec.source ? `<span class="badge">${esc(sec.source)}</span>` : ""}
+      </div>
+      <textarea class="vsec-body" rows="6" placeholder="Describe this part of your voice…">${esc(sec.body || "")}</textarea>
+      <div class="vsec-foot">
+        <button class="btn primary small" data-act="save-section">Save</button>
+      </div>
+    </div>`;
+  }).join("");
 
   const fb = v.feedback || [];
   const fbHtml = fb.length
@@ -504,22 +538,196 @@ async function loadVoice() {
     : `<div class="muted small">No feedback yet. Use 👍/👎 in the overlay and it shows up here.</div>`;
 
   el.innerHTML = `
-    <div class="panel">
+    <div class="panel compile-bar">
       <div class="voice-stat">
         <span class="badge ${v.ok ? "ok" : "warn"}">${v.ok ? "ready" : "needs setup"}</span>
-        <span class="muted small">${v.chars.toLocaleString()} characters${v.updated_at ? " · updated " + fmtDate(v.updated_at) : ""}</span>
+        <span class="muted small">compiled profile · ${v.chars.toLocaleString()} characters${v.updated_at ? " · updated " + fmtDate(v.updated_at) : ""}</span>
       </div>
-      <p class="muted small">This is the compiled voice the assistant writes in. To update it, edit
-        <code>voice_profile/strategy_analysis.md</code> or run <code>npm run init-voice</code>
-        (which also folds in your 👍/👎 feedback below).</p>
-      <div class="voice-doc">${miniMarkdown(v.content)}</div>
+      <p class="muted small">Edit the sections below, then <strong>Compile</strong> to write the runtime profile
+        (<code>voice_profile/strategy_analysis.md</code>) — the voice the assistant actually writes in.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="compileBtn">Compile profile</button>
+        <button class="btn ghost" id="toggleCompiled">View compiled</button>
+      </div>
+      <div class="voice-doc" id="compiledDoc" hidden>${miniMarkdown(v.content)}</div>
     </div>
+
+    <details class="panel distill-panel">
+      <summary><strong>Start from my messages</strong> <span class="muted small">— distill a profile from pasted text</span></summary>
+      <p class="muted small">Paste a batch of messages you've written (DMs, emails, replies). The assistant analyzes
+        them and writes a fresh profile. <strong>This overwrites the compiled profile above.</strong></p>
+      <textarea id="corpusText" rows="9" placeholder="Paste your own messages here, one after another…"></textarea>
+      <div class="btn-row">
+        <button class="btn primary" id="distillBtn">Analyze my voice</button>
+      </div>
+    </details>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Voice sections</h2><span class="panel-kick">Editable</span></div>
+      <p class="muted small">Each card is a building block. Save edits here, then Compile to apply them.</p>
+      <div class="vsec-grid">${cards || '<div class="muted small">No sections yet — use “Start from my messages” above.</div>'}</div>
+    </div>
+
     <div class="panel">
       <h2>Feedback history (${fb.length})</h2>
       ${fbHtml}
     </div>`;
+
+  // View-compiled toggle.
+  $("#toggleCompiled").addEventListener("click", () => {
+    const doc = $("#compiledDoc");
+    doc.hidden = !doc.hidden;
+    $("#toggleCompiled").textContent = doc.hidden ? "View compiled" : "Hide compiled";
+  });
+
+  // Per-section save.
+  $$("#voiceContent .vsec").forEach((card) => {
+    const key = card.dataset.key;
+    card.querySelector('[data-act="save-section"]').addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const body = card.querySelector(".vsec-body").value;
+      btn.disabled = true;
+      try {
+        await api(`/voice/sections/${encodeURIComponent(key)}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }),
+        });
+        toast(`Saved “${VOICE_LABELS[key] || key}” — Compile to apply`);
+      } catch (err) { toast(err.message, "err"); }
+      finally { btn.disabled = false; }
+    });
+  });
+
+  // Compile.
+  $("#compileBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await api("/voice/compile", { method: "POST" });
+      toast(`Compiled — ${(r.chars || 0).toLocaleString()} characters written`);
+      loadVoice();
+    } catch (err) { toast(err.message, "err"); }
+    finally { btn.disabled = false; }
+  });
+
+  // Paste-to-distill.
+  $("#distillBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const corpusText = $("#corpusText").value.trim();
+    if (!corpusText) { toast("Paste some of your messages first", "err"); return; }
+    if (!confirm("Analyze these messages and overwrite the compiled profile?")) return;
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "Analyzing…";
+    try {
+      const r = await api("/voice/distill", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corpusText }),
+      });
+      toast(`Voice distilled — ${(r.chars || 0).toLocaleString()} characters`);
+      loadVoice();
+    } catch (err) { toast(err.message, "err"); }
+    finally { btn.disabled = false; btn.textContent = prev; }
+  });
 }
 $("#refreshVoice").addEventListener("click", loadVoice);
+
+// ---------------------------------------------------------------- About me (context)
+const CONTEXT_GROUPS = [
+  { type: "project", label: "Projects" },
+  { type: "achievement", label: "Achievements" },
+  { type: "bio", label: "Bio" },
+  { type: "looking_for", label: "What I'm looking for" },
+];
+
+async function loadAbout() {
+  const el = $("#aboutContent");
+  el.innerHTML = `<div class="muted">Loading…</div>`;
+  let data;
+  try { data = await api("/context"); } catch (err) { el.innerHTML = `<div class="status err">${esc(err.message)}</div>`; return; }
+  const grouped = data.grouped || {};
+
+  el.innerHTML = `
+    <div class="panel">
+      <p class="muted">Personal context the assistant draws on when it writes — projects worth mentioning,
+        achievements, a short bio, and what you're after. Items distilled automatically show up as
+        <span class="badge pending">pending</span> until you confirm them.</p>
+    </div>
+    ${CONTEXT_GROUPS.map((g) => {
+      const items = grouped[g.type] || [];
+      return `<div class="panel ctx-group" data-type="${g.type}">
+        <div class="panel-head">
+          <h2>${esc(g.label)} <span class="muted small">(${items.length})</span></h2>
+          <button class="btn ghost small" data-act="add">+ Add</button>
+        </div>
+        <div class="ctx-list">${items.map(renderCtxItem).join("") || '<div class="muted small">Nothing here yet.</div>'}</div>
+      </div>`;
+    }).join("")}`;
+
+  $$("#aboutContent .ctx-item").forEach(wireCtxItem);
+  $$("#aboutContent .ctx-group [data-act='add']").forEach((b) =>
+    b.addEventListener("click", () => addCtxItem(b.closest(".ctx-group").dataset.type)),
+  );
+}
+$("#refreshAbout").addEventListener("click", loadAbout);
+
+function renderCtxItem(it) {
+  const pending = it.confirmed === 0;
+  const tags = (it.tags || []).join(", ");
+  return `<div class="ctx-item ${pending ? "pending" : ""}" data-id="${it.id}">
+    <div class="ctx-item-head">
+      <input class="ctx-title" type="text" value="${esc(it.title || "")}" placeholder="Title" />
+      ${pending ? `<span class="badge pending">pending</span>` : ""}
+    </div>
+    <textarea class="ctx-body" rows="3" placeholder="Details…">${esc(it.body || "")}</textarea>
+    <input class="ctx-tags" type="text" value="${esc(tags)}" placeholder="tags, comma-separated" />
+    <div class="ctx-actions">
+      ${pending ? `<button class="icon-btn ok" data-act="confirm">✓ confirm</button>` : ""}
+      <button class="icon-btn" data-act="save">save</button>
+      <button class="icon-btn danger" data-act="delete">delete</button>
+    </div>
+  </div>`;
+}
+
+function wireCtxItem(el) {
+  const id = Number(el.dataset.id);
+  const collect = () => ({
+    title: el.querySelector(".ctx-title").value.trim(),
+    body: el.querySelector(".ctx-body").value,
+    tags: el.querySelector(".ctx-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+  });
+  el.querySelector('[data-act="save"]').addEventListener("click", async () => {
+    try {
+      await api(`/context/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(collect()) });
+      toast("Saved");
+    } catch (err) { toast(err.message, "err"); }
+  });
+  el.querySelector('[data-act="delete"]').addEventListener("click", async () => {
+    if (!confirm("Delete this item?")) return;
+    try { await api(`/context/${id}`, { method: "DELETE" }); toast("Deleted"); loadAbout(); }
+    catch (err) { toast(err.message, "err"); }
+  });
+  const confirmBtn = el.querySelector('[data-act="confirm"]');
+  if (confirmBtn) confirmBtn.addEventListener("click", async () => {
+    // Persist any pending edits first, then confirm.
+    try {
+      await api(`/context/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(collect()) });
+      await api(`/context/${id}/confirm`, { method: "POST" });
+      toast("Confirmed"); loadAbout();
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function addCtxItem(type) {
+  const group = CONTEXT_GROUPS.find((g) => g.type === type);
+  const title = prompt(`New ${group ? group.label.replace(/s$/, "") : type} — title:`);
+  if (title === null || !title.trim()) return;
+  try {
+    await api("/context", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, title: title.trim(), body: "" }),
+    });
+    toast("Added"); loadAbout();
+  } catch (err) { toast(err.message, "err"); }
+}
 
 // ---------------------------------------------------------------- Activity
 async function loadActivity() {

@@ -100,6 +100,23 @@ export function getDb(): Database.Database {
       api_key_enc TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- Personal-context layer ("ABOUT ME"). Trusted facts about the user —
+    -- projects, achievements, bio, what they're looking for — that the prompt
+    -- can weave into replies. Tenant-scoped like notes. confirmed=0 marks an
+    -- auto-proposed item (e.g. inferred from LinkedIn) that stays out of the
+    -- prompt until the user confirms it, mirroring the notes trust gate.
+    CREATE TABLE IF NOT EXISTS context_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id TEXT NOT NULL DEFAULT 'local',
+      type TEXT NOT NULL CHECK (type IN ('project','achievement','bio','looking_for')),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      tags TEXT,
+      confirmed INTEGER NOT NULL DEFAULT 1 CHECK (confirmed IN (0,1)),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Forward-compatible column additions (no-op if column already exists).
@@ -140,6 +157,7 @@ export function getDb(): Database.Database {
   // provided by the composite PRIMARY KEY, so no separate unique index here.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_notes_tenant ON notes(tenant_id, contact_name)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_strategy_tenant ON strategy_log(tenant_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_context_tenant ON context_items(tenant_id, type)`);
 
   // H1b: rebuild a legacy single-column-PK contacts table into the composite
   // (tenant_id, name) model. Gated by PRAGMA user_version so it runs once.
