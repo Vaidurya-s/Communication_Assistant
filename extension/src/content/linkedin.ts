@@ -137,12 +137,38 @@ function makeMessage(
   };
 }
 
+const MESSAGE_LIST_WAIT_MS = 4000;
+const MESSAGE_LIST_POLL_MS = 100;
+
+/**
+ * Wait for the message-list container to appear. LinkedIn's SPA paints a thread
+ * asynchronously after a navigation or conversation switch, so extraction fired
+ * immediately on open used to find nothing — all-null selectors and an empty
+ * snapshot. Polls until the container is present or the timeout elapses; a no-op
+ * (returns instantly) once it's already there.
+ */
+async function waitForMessageList(timeoutMs = MESSAGE_LIST_WAIT_MS): Promise<boolean> {
+  const start = performance.now();
+  for (;;) {
+    if (queryFirstChain(document, S.messageListContainer).elements[0]) return true;
+    if (performance.now() - start >= timeoutMs) return false;
+    await sleep(MESSAGE_LIST_POLL_MS);
+  }
+}
+
 export async function extractLinkedInContext(): Promise<ExtractionResult> {
   const startedAt = performance.now();
   const diag = createEmptyDiagnostics();
 
   const self = await resolveSelfName();
   diag.selfDetectionPath = self.path;
+
+  // On a thread route, give the SPA a moment to render the message list before
+  // reading the DOM (extracting too early is the #1 cause of a "couldn't read
+  // this page" with every selector null).
+  if (window.location.pathname.includes("/messaging/thread/")) {
+    await waitForMessageList();
+  }
 
   const titleMatch = firstMatchText(S.conversationTitle);
   diag.selectorHits.conversationTitle = titleMatch.selectorHit;
@@ -204,6 +230,9 @@ function sleep(ms: number): Promise<void> {
 /** Returns the wall-clock ms spent scrolling. */
 export async function backfillMessages(): Promise<number> {
   const start = performance.now();
+  // The list may not have rendered yet (SPA). Wait for it so backfill can
+  // actually scroll history instead of no-opping on a missing container.
+  await waitForMessageList();
   const m = queryFirstChain(document, S.messageListContainer);
   const container = m.elements[0] as HTMLElement | undefined;
   if (!container) return performance.now() - start;
@@ -248,11 +277,27 @@ export function installMessageObserver(onChange: () => void): MutationObserver |
 }
 
 /**
- * Helper for snapshot: return the innerHTML of the message list container,
- * or empty string if not present. Used by the snapshot exporter only.
+ * Helper for snapshot: return the message-list container's HTML. Used by the
+ * snapshot exporter only.
+ *
+ * When the container is MISSING — which is exactly the case a snapshot is saved
+ * to debug — we must not return "" (that's a blank, useless snapshot). Fall back
+ * to a broader region (messaging shell → main → body) so the captured DOM
+ * actually shows what rendered instead. Size-capped so a snapshot can't balloon.
  */
+const SNAPSHOT_MAX_CHARS = 120_000;
+
 export function getMessageListSubtreeHtml(): string {
   const m = queryFirstChain(document, S.messageListContainer);
   const container = m.elements[0] as HTMLElement | undefined;
-  return container?.outerHTML ?? "";
+  if (container) return container.outerHTML;
+
+  const fallback =
+    document.querySelector(
+      ".msg-overlay-container, .scaffold-layout__content, .msg-overlay-list-bubble, main",
+    ) ?? document.body;
+  const html = fallback?.outerHTML ?? "";
+  return html.length > SNAPSHOT_MAX_CHARS
+    ? html.slice(0, SNAPSHOT_MAX_CHARS) + "\n<!-- …truncated for snapshot size -->"
+    : html;
 }
