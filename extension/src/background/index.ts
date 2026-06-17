@@ -1,5 +1,7 @@
 import {
+  ANALYZE_STREAM_PORT,
   type AnalyzeRequest,
+  type AnalyzeStreamEvent,
   type BackendResponse,
   type RuntimeMessage,
 } from "../shared/messages";
@@ -164,42 +166,176 @@ async function attachContactProfile(ctx: ConversationContext): Promise<Conversat
   return { ...ctx, contact_profile: profile };
 }
 
+/**
+ * Build the ConversationContext for an analyze request: cold-open pulls the
+ * profile-only context; other modes extract (or reuse) the open thread and
+ * attach any cached contact profile. Shared by the JSON and streaming paths.
+ */
+async function resolveAnalyzeContext(
+  req: AnalyzeRequest,
+  tab: chrome.tabs.Tab,
+): Promise<ConversationContext> {
+  if (req.mode === "cold_open") {
+    await ensureContentScriptInjected(tab);
+    const ctx = await requestColdOpenContext(tab.id!);
+    state.lastContext = ctx;
+    return ctx;
+  }
+  let ctx: ConversationContext;
+  if (needsContextExtraction(req.mode)) {
+    await ensureContentScriptInjected(tab);
+    const extracted = await requestExtractFromContent(tab.id!);
+    ctx = extracted.context;
+    state.lastContext = ctx;
+    state.lastDiagnostics = extracted.diagnostics;
+  } else if (state.lastContext) {
+    ctx = state.lastContext;
+  } else {
+    await ensureContentScriptInjected(tab);
+    const extracted = await requestExtractFromContent(tab.id!);
+    ctx = extracted.context;
+    state.lastContext = ctx;
+    state.lastDiagnostics = extracted.diagnostics;
+  }
+  return attachContactProfile(ctx);
+}
+
 async function handleAnalyze(req: AnalyzeRequest): Promise<RuntimeMessage> {
   const tab = await getActiveTab();
   if (!tab || tab.id === undefined) return { type: "ERROR", message: "no active tab" };
 
   try {
-    let ctx: ConversationContext;
-    if (req.mode === "cold_open") {
-      // First message: pull the profile-only context from the profile page.
-      // The profile is already attached, so skip the thread-extraction path
-      // and the cache lookup in attachContactProfile.
-      await ensureContentScriptInjected(tab);
-      ctx = await requestColdOpenContext(tab.id);
-      state.lastContext = ctx;
-    } else {
-      if (needsContextExtraction(req.mode)) {
-        await ensureContentScriptInjected(tab);
-        const extracted = await requestExtractFromContent(tab.id);
-        ctx = extracted.context;
-        state.lastContext = ctx;
-        state.lastDiagnostics = extracted.diagnostics;
-      } else if (state.lastContext) {
-        ctx = state.lastContext;
-      } else {
-        await ensureContentScriptInjected(tab);
-        const extracted = await requestExtractFromContent(tab.id);
-        ctx = extracted.context;
-        state.lastContext = ctx;
-        state.lastDiagnostics = extracted.diagnostics;
-      }
-      ctx = await attachContactProfile(ctx);
-    }
+    const ctx = await resolveAnalyzeContext(req, tab);
     const resp = await postToBackend(ctx, req.mode, req.seed_text, req.steer);
     state.lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
   } catch (err) {
     return { type: "ERROR", message: (err as Error).message };
+  }
+}
+
+/** Parse one SSE event block ("event: <name>\ndata: <json>"). */
+function parseSseEvent(raw: string): { event: string; data: Record<string, unknown> } | null {
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  try {
+    return { event, data: JSON.parse(dataLines.join("\n")) as Record<string, unknown> };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run an analyze and relay it to the overlay over a Port: SSE tokens when the
+ * provider streams, or a single final batch when it doesn't (gemini-cli returns
+ * JSON). The overlay consumes the same event sequence either way.
+ */
+async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Port): Promise<void> {
+  const send = (e: AnalyzeStreamEvent) => {
+    try {
+      port.postMessage(e);
+    } catch {
+      /* port disconnected — overlay closed; stop relaying */
+    }
+  };
+
+  const tab = await getActiveTab();
+  if (!tab || tab.id === undefined) {
+    send({ type: "error", message: "no active tab" });
+    return;
+  }
+
+  let ctx: ConversationContext;
+  try {
+    ctx = await resolveAnalyzeContext(req, tab);
+  } catch (err) {
+    send({ type: "error", message: (err as Error).message });
+    return;
+  }
+
+  const body = { ...ctx, mode: req.mode, seed_text: req.seed_text ?? "", steer: req.steer ?? "", stream: true };
+  let res: Response;
+  try {
+    res = await backendFetch("/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    send({ type: "error", message: (err as Error).message });
+    return;
+  }
+  if (!res.ok) {
+    let detail = `backend ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.error) detail = `${detail}: ${j.error}`;
+    } catch {
+      /* ignore body parse errors */
+    }
+    send({ type: "error", message: detail });
+    return;
+  }
+
+  const ctype = res.headers.get("content-type") || "";
+  if (!ctype.includes("text/event-stream") || !res.body) {
+    // Provider can't stream (gemini-cli) — backend returned JSON. Emit a single
+    // final batch so the overlay's streaming consumer still works unchanged.
+    try {
+      const j = (await res.json()) as BackendResponse;
+      state.lastResponse = j;
+      send({ type: "reply_done", suggested_reply: j.suggested_reply, stats: j.stats });
+      send({ type: "insight", memory_proposal: j.memory_proposal, strategy: j.strategy });
+      send({ type: "done" });
+    } catch (err) {
+      send({ type: "error", message: (err as Error).message });
+    }
+    return;
+  }
+
+  // Parse the SSE stream, buffering across chunks (events can split mid-line).
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let lastReply = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const evt = parseSseEvent(buffer.slice(0, idx));
+        buffer = buffer.slice(idx + 2);
+        if (!evt) continue;
+        if (evt.event === "token") {
+          send({ type: "token", t: (evt.data.t as string) ?? "" });
+        } else if (evt.event === "reply_done") {
+          lastReply = (evt.data.suggested_reply as string) ?? "";
+          send({ type: "reply_done", suggested_reply: lastReply, stats: evt.data.stats as Record<string, unknown> });
+        } else if (evt.event === "insight") {
+          send({
+            type: "insight",
+            memory_proposal: (evt.data.memory_proposal as BackendResponse["memory_proposal"]) ?? null,
+            strategy: (evt.data.strategy as BackendResponse["strategy"]) ?? null,
+          });
+        } else if (evt.event === "error") {
+          send({ type: "error", message: (evt.data.error as string) ?? "stream error" });
+        } else if (evt.event === "done") {
+          send({ type: "done" });
+        }
+      }
+    }
+    if (lastReply) {
+      state.lastResponse = { suggested_reply: lastReply, memory_proposal: null, strategy: null };
+    }
+  } catch (err) {
+    send({ type: "error", message: (err as Error).message });
   }
 }
 
@@ -309,6 +445,16 @@ async function handleImportSelfProfile(): Promise<RuntimeMessage> {
     return { type: "ERROR", message: (err as Error).message };
   }
 }
+
+// Streaming analyze over a long-lived Port (token-by-token to the overlay).
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== ANALYZE_STREAM_PORT) return;
+  port.onMessage.addListener((msg: { type?: string }) => {
+    if (msg?.type === "ANALYZE_REQUEST") {
+      void streamAnalyzeToPort(msg as AnalyzeRequest, port);
+    }
+  });
+});
 
 chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse) => {
   if (msg.type === "ANALYZE_REQUEST") {

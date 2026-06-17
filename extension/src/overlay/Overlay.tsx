@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AnalyzeRequest, BackendResponse, Mode, RuntimeMessage } from "../shared/messages";
+import { ANALYZE_STREAM_PORT } from "../shared/messages";
+import type {
+  AnalyzeRequest,
+  AnalyzeStreamEvent,
+  BackendResponse,
+  Mode,
+  RuntimeMessage,
+} from "../shared/messages";
 import { useDraggable, type Position } from "./useDraggable";
 import {
   describeAnomaly,
@@ -252,49 +259,94 @@ export function Overlay({ onClose, coldOpen }: Props) {
 
   // `steerOverride` lets tone chips / Regenerate inject a steer without waiting
   // on the steer state to settle.
+  // Streams over a Port so tokens render as they arrive. Resolves when the
+  // stream completes (or errors), so callers that `await analyze(...)` still work.
   const analyze = useCallback(
-    async (mode: Mode, opts?: { steerOverride?: string }) => {
-      setStatus({ kind: "loading", mode });
-      setCopied(false);
-      setMemorySaved(false);
-      setFeedbackGiven(null);
-      setShowFeedbackNote(false);
-      const seed_text = mode === "shorter" || mode === "longer" ? preview : undefined;
-      const steerVal = (opts?.steerOverride ?? steer).trim() || undefined;
-      const req: AnalyzeRequest = { type: "ANALYZE_REQUEST", mode, seed_text, steer: steerVal };
-      const resp = await sendBackground(req);
+    (mode: Mode, opts?: { steerOverride?: string }) =>
+      new Promise<void>((resolve) => {
+        setStatus({ kind: "loading", mode });
+        setCopied(false);
+        setMemorySaved(false);
+        setFeedbackGiven(null);
+        setShowFeedbackNote(false);
+        const seed_text = mode === "shorter" || mode === "longer" ? preview : undefined;
+        const steerVal = (opts?.steerOverride ?? steer).trim() || undefined;
 
-      if (resp?.type === "BACKEND_RESPONSE") {
-        const payload = resp.payload as BackendResponse;
-        setPreview(payload.suggested_reply ?? "");
-        setMemoryProposal(payload.memory_proposal ?? null);
-        setStrategy(payload.strategy ?? null);
-        setBackendHealth("online");
-        const statusResp = await sendBackground({ type: "STATUS_REQUEST" });
-        if (statusResp?.type === "STATUS_RESPONSE" && statusResp.lastContext) {
-          const info = {
-            title: statusResp.lastContext.conversation_title,
-            messages: statusResp.lastContext.messages.length,
-            draftLen: statusResp.lastContext.current_draft.length,
-          };
-          setThreadInfo(info);
-          if (statusResp.lastDiagnostics) {
-            setDiagnostics(statusResp.lastDiagnostics);
-            setAnomalyDismissed(false);
-          }
-          const c = await fetchContact(info.title);
-          setContactInfo(c);
+        let port: chrome.runtime.Port;
+        try {
+          port = chrome.runtime.connect({ name: ANALYZE_STREAM_PORT });
+        } catch (err) {
+          setStatus({ kind: "error", message: (err as Error).message });
+          resolve();
+          return;
         }
-        setStatus({ kind: "idle" });
-        return;
-      }
-      if (resp?.type === "ERROR") {
-        setStatus({ kind: "error", message: resp.message });
-        if (/fetch|backend|ECONN|network/i.test(resp.message)) void refreshHealth();
-        return;
-      }
-      setStatus({ kind: "error", message: "unexpected response" });
-    },
+
+        let acc = "";
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          try {
+            port.disconnect();
+          } catch {
+            /* already gone */
+          }
+          resolve();
+        };
+
+        // After a reply lands, refresh the thread/contact panel (same as before).
+        const refreshThread = async () => {
+          const statusResp = await sendBackground({ type: "STATUS_REQUEST" });
+          if (statusResp?.type === "STATUS_RESPONSE" && statusResp.lastContext) {
+            const info = {
+              title: statusResp.lastContext.conversation_title,
+              messages: statusResp.lastContext.messages.length,
+              draftLen: statusResp.lastContext.current_draft.length,
+            };
+            setThreadInfo(info);
+            if (statusResp.lastDiagnostics) {
+              setDiagnostics(statusResp.lastDiagnostics);
+              setAnomalyDismissed(false);
+            }
+            const c = await fetchContact(info.title);
+            setContactInfo(c);
+          }
+        };
+
+        port.onMessage.addListener((ev: AnalyzeStreamEvent) => {
+          if (ev.type === "token") {
+            acc += ev.t;
+            setPreview(acc);
+            setBackendHealth("online");
+          } else if (ev.type === "reply_done") {
+            acc = ev.suggested_reply ?? acc;
+            setPreview(acc);
+            setBackendHealth("online");
+          } else if (ev.type === "insight") {
+            setMemoryProposal(ev.memory_proposal ?? null);
+            setStrategy(ev.strategy ?? null);
+          } else if (ev.type === "error") {
+            setStatus({ kind: "error", message: ev.message });
+            if (/fetch|backend|ECONN|network/i.test(ev.message)) void refreshHealth();
+            finish();
+          } else if (ev.type === "done") {
+            void refreshThread().finally(() => {
+              setStatus({ kind: "idle" });
+              finish();
+            });
+          }
+        });
+
+        port.onDisconnect.addListener(() => {
+          // Closed before an explicit done/error: treat a partial reply as success,
+          // otherwise surface a disconnect.
+          if (settled) return;
+          setStatus(acc ? { kind: "idle" } : { kind: "error", message: "stream disconnected" });
+          finish();
+        });
+
+        port.postMessage({ type: "ANALYZE_REQUEST", mode, seed_text, steer: steerVal } satisfies AnalyzeRequest);
+      }),
     [preview, refreshHealth, steer],
   );
 

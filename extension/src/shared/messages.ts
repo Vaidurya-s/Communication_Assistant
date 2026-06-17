@@ -24,6 +24,23 @@ export interface BackendResponse {
   stats?: Record<string, unknown>;
 }
 
+/**
+ * Streaming analyze runs over a long-lived Port (request/response messaging can't
+ * carry a token stream). The overlay opens a Port named ANALYZE_STREAM_PORT,
+ * posts an AnalyzeRequest, and receives this sequence:
+ *   token*  →  reply_done  →  insight  →  done   (or a terminal `error`).
+ * If the backend provider can't stream (gemini-cli), the background relays the
+ * JSON result as a single reply_done + insight + done, so the same consumer works.
+ */
+export const ANALYZE_STREAM_PORT = "analyze-stream";
+
+export type AnalyzeStreamEvent =
+  | { type: "token"; t: string }
+  | { type: "reply_done"; suggested_reply: string; stats?: Record<string, unknown> }
+  | { type: "insight"; memory_proposal: BackendResponse["memory_proposal"]; strategy: BackendResponse["strategy"] }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
 export type RuntimeMessage =
   | AnalyzeRequest
   | { type: "EXTRACT_REQUEST"; backfill: boolean }
