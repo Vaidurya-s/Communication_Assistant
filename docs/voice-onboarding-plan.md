@@ -2,10 +2,12 @@
 
 **Status:** Phases 1–4 shipped (editable voice tab, sectioned authoring, personal-
 context layer + contact-matched retrieval, cold-start flows). Phase 5 in progress:
-`feedback/apply` and **structured 👎 chips** (overlay chips route a thumbs-down to a
-specific voice section; stored in feedback.md + shown in the console inbox) are done.
-Remaining Phase 5: edit-mining capture, dashboard `voice:eval` + A/B + version revert,
-golden-thread guard, voice lint, explainability.
+`feedback/apply`, **structured 👎 chips** (overlay chips route a thumbs-down to a
+specific voice section; stored in feedback.md + shown in the console inbox), and
+**voice lint** (deterministic, no-LLM check flagging draft words the profile says to
+avoid — `voiceLint.ts` + `POST /voice/lint` + overlay heads-up) are done. Remaining
+Phase 5: edit-mining capture, dashboard `voice:eval` + A/B + version revert,
+golden-thread guard, explainability.
 **Owner decisions captured (2026-06-17):** one unified system (voice + personal
 context); edited in the dashboard; cold-start via guided interview + paste corpus
 + infer-from-LinkedIn; runtime model = compile voice to a single file, context as

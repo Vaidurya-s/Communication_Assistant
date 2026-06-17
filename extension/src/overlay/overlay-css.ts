@@ -191,6 +191,13 @@ export const OVERLAY_CSS = `
 }
 .ca-retry:hover { background: var(--danger-soft); }
 
+/* Voice lint heads-up */
+.ca-lint {
+  font-size: 11px; color: var(--warn, #e0a83a); background: rgba(224, 168, 58, 0.08);
+  border: 1px solid rgba(224, 168, 58, 0.28); border-radius: 8px; padding: 5px 9px;
+  line-height: 1.35;
+}
+
 /* Feedback */
 .ca-feedback { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .ca-feedback-note { display: flex; flex-direction: column; gap: 6px; width: 100%; }

@@ -59,6 +59,7 @@ import {
 } from "./voiceSections.js";
 import { distill, distillSection } from "./voiceDistill.js";
 import { computeStrength } from "./voiceStrength.js";
+import { lintProfileText } from "./voiceLint.js";
 import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
 import { selectRelevantContext } from "./contextRetrieval.js";
 
@@ -446,6 +447,18 @@ app.post("/feedback", (req: Request, res: Response) => {
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// Voice lint (deterministic, no LLM): flag where a draft uses words the user's
+// own voice profile says to avoid. The overlay calls this as the user reads/edits
+// a draft and surfaces hits as a gentle heads-up.
+app.post("/voice/lint", (req: Request, res: Response) => {
+  const { text } = req.body ?? {};
+  if (typeof text !== "string") {
+    res.status(400).json({ error: "text (string) required" });
+    return;
+  }
+  res.json({ violations: lintProfileText(getVoice(tenant(req)), text) });
 });
 
 // --- Snapshot endpoints ----------------------------------------------------

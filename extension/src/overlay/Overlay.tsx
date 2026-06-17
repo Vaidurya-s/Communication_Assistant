@@ -194,6 +194,9 @@ export function Overlay({ onClose, coldOpen }: Props) {
   const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
   const [showFeedbackNote, setShowFeedbackNote] = useState(false);
   const [feedbackNote, setFeedbackNote] = useState("");
+  // Deterministic voice-lint hits: words the user's profile says to avoid that
+  // appear in the current draft.
+  const [lintTerms, setLintTerms] = useState<string[]>([]);
 
   const previewRef = useRef<HTMLTextAreaElement>(null);
 
@@ -261,6 +264,30 @@ export function Overlay({ onClose, coldOpen }: Props) {
   });
 
   useEffect(() => setPosition(livePosition), [livePosition]);
+
+  // Voice lint: debounce-check the draft (and any manual edits) against the
+  // profile's "avoid" rules. Deterministic and cheap; failures are silent.
+  useEffect(() => {
+    if (!preview.trim()) {
+      setLintTerms([]);
+      return;
+    }
+    const id = setTimeout(async () => {
+      try {
+        const res = await backendFetch(`/voice/lint`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: preview }),
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as { violations?: Array<{ term: string }> };
+        setLintTerms((j.violations ?? []).map((v) => v.term));
+      } catch {
+        /* lint is best-effort */
+      }
+    }, 500);
+    return () => clearTimeout(id);
+  }, [preview]);
 
   const toggleCollapsed = () => {
     const next = !collapsed;
@@ -621,6 +648,12 @@ export function Overlay({ onClose, coldOpen }: Props) {
                 rows={6}
               />
 
+              {lintTerms.length > 0 && status.kind !== "loading" && (
+                <div className="ca-lint" title="From your own 'avoid' list in your voice profile">
+                  ⚠ You usually avoid: {lintTerms.map((t) => `“${t}”`).join(", ")}
+                </div>
+              )}
+
               {preview && status.kind !== "loading" && (
                 <div className="ca-feedback">
                   {feedbackGiven ? (
@@ -851,6 +884,12 @@ export function Overlay({ onClose, coldOpen }: Props) {
             className="ca-preview"
             rows={6}
           />
+
+          {lintTerms.length > 0 && status.kind !== "loading" && (
+            <div className="ca-lint" title="From your own 'avoid' list in your voice profile">
+              ⚠ You usually avoid: {lintTerms.map((t) => `“${t}”`).join(", ")}
+            </div>
+          )}
 
           {/* Feedback on the current suggestion */}
           {preview && status.kind !== "loading" && (
