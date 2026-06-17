@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import { resolve } from "node:path";
 import { existsSync, statSync, writeFileSync } from "node:fs";
-import { runLLM, getProviderName, getProviderNameFor, resetProvider, resetProviderFor } from "./llm/index.js";
+import { runLLM, getProviderFor, getProviderName, getProviderNameFor, resetProvider, resetProviderFor } from "./llm/index.js";
 import { createOpenAiCompatProvider } from "./llm/openai-compat.js";
 import { createAnthropicProvider } from "./llm/anthropic.js";
 import { getConfig, reloadConfig, type ProviderName } from "./config.js";
@@ -59,6 +59,7 @@ import {
 } from "./voiceSections.js";
 import { distill, distillSection } from "./voiceDistill.js";
 import { computeStrength } from "./voiceStrength.js";
+import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -224,23 +225,69 @@ app.post("/analyze", async (req: Request, res: Response) => {
     aboutMe: getConfirmedContext(t).map((c) => ({ type: c.type, title: c.title, body: c.body })),
   });
 
-  // Fire reply + insight in parallel. Insight is run on the FULL transcript
-  // regardless of mode (it always benefits from full context). staticPrefix lets
-  // a caching provider (anthropic) cache the voice profile across drafts.
-  const replyPromise = runLLM(instruction, context, { tenantId: t, staticPrefix });
+  // Insight runs only on a real conversation (shorter/longer are pure rewrites).
+  const runInsight = !!contactName && (mode === "suggest" || mode === "continue_draft" || mode === "follow_up");
+  const computeInsight = () =>
+    runInsight
+      ? generateInsight({
+          contactName,
+          transcript,
+          existingNotes: getNotesFor(t, contactName),
+          todayIso: new Date().toISOString().slice(0, 10),
+          tenantId: t,
+        })
+      : Promise.resolve({ memory_proposal: null, strategy: null });
+  const persistStrategy = (ins: { strategy: { text: string; suggested_followup_at: string | null } | null }) => {
+    if (ins.strategy && contactName) {
+      recordStrategy(t, contactName, ins.strategy.text, ins.strategy.suggested_followup_at);
+      if (ins.strategy.suggested_followup_at) setFollowupAt(t, contactName, ins.strategy.suggested_followup_at);
+    }
+  };
 
-  // Only run insight when we have a real conversation to analyze. shorter/formal
-  // are pure rewrites — they shouldn't trigger memory updates.
-  const runInsight = contactName && (mode === "suggest" || mode === "continue_draft" || mode === "follow_up");
-  const insightPromise = runInsight
-    ? generateInsight({
-        contactName,
-        transcript,
-        existingNotes: getNotesFor(t, contactName),
-        todayIso: new Date().toISOString().slice(0, 10),
+  // --- Streaming variant (SSE). The client opts in with `stream: true` (or an
+  // `Accept: text/event-stream` header) and the provider must support runStream.
+  // Events: token* → reply_done → insight → done (or error). Insight runs AFTER
+  // the reply is fully streamed, so the draft is never held up by it (Phase A).
+  const wantStream =
+    (req.body as { stream?: unknown })?.stream === true ||
+    (req.header("accept") || "").includes("text/event-stream");
+  const provider = getProviderFor(t);
+  if (wantStream && provider.runStream) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    const sse = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    try {
+      const reply = await provider.runStream(instruction, context, {
         tenantId: t,
-      })
-    : Promise.resolve({ memory_proposal: null, strategy: null });
+        staticPrefix,
+        onToken: (tok) => sse("token", { t: tok }),
+      });
+      sse("reply_done", {
+        suggested_reply: reply.text,
+        stats: { requested_mode: mode, resolved_mode: resolvedMode, llm_ms: reply.durationMs, provider: getProviderNameFor(t) },
+      });
+      try {
+        const ins = await computeInsight();
+        persistStrategy(ins);
+        sse("insight", { memory_proposal: ins.memory_proposal, strategy: ins.strategy });
+      } catch (err) {
+        console.warn("[analyze:stream] insight failed:", (err as Error)?.message);
+        sse("insight", { memory_proposal: null, strategy: null });
+      }
+      sse("done", {});
+    } catch (err) {
+      console.error("[analyze:stream] reply failed:", err);
+      sse("error", { error: (err as Error)?.message ?? "reply failed" });
+    } finally {
+      res.end();
+    }
+    return;
+  }
+
+  // --- Non-streaming (JSON) path: reply + insight in parallel.
+  const replyPromise = runLLM(instruction, context, { tenantId: t, staticPrefix });
+  const insightPromise = computeInsight();
 
   // The reply is the user-facing artifact. Insight is a nice-to-have. We let
   // them race independently: if insight fails or times out, we still return
@@ -263,12 +310,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     console.warn("[analyze] insight llm failed (reply still returned):", (insightResult.reason as Error)?.message);
   }
 
-  if (insight.strategy && contactName) {
-    recordStrategy(t, contactName, insight.strategy.text, insight.strategy.suggested_followup_at);
-    if (insight.strategy.suggested_followup_at) {
-      setFollowupAt(t, contactName, insight.strategy.suggested_followup_at);
-    }
-  }
+  persistStrategy(insight);
 
   res.json({
     suggested_reply: reply.text,
@@ -562,6 +604,26 @@ app.post("/onboarding/from-linkedin", (req: Request, res: Response) => {
       }
     }
     res.json({ ok: true, created });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// Guided interview (voice-onboarding §8): GET the questions, POST the answers.
+// Answers map deterministically to voice sections + proposed context items.
+app.get("/onboarding/interview", (_req: Request, res: Response) => {
+  res.json({ questions: INTERVIEW_QUESTIONS });
+});
+
+app.post("/onboarding/interview", (req: Request, res: Response) => {
+  const answers = req.body?.answers;
+  if (!answers || typeof answers !== "object") {
+    res.status(400).json({ error: "an answers object is required" });
+    return;
+  }
+  try {
+    const result = applyInterview(tenant(req), answers as Record<string, string>);
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

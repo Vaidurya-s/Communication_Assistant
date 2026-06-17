@@ -10,6 +10,7 @@
  */
 import { getDb } from "./db.js";
 import { getAllContacts, getNotesFor, type ContactSummary, type Note } from "./memory.js";
+import { getContextItems, type ContextItem } from "./context.js";
 import { hasTenantLLM } from "./secrets.js";
 
 export interface ExportedContact extends ContactSummary {
@@ -29,6 +30,7 @@ export interface TenantExport {
   exported_at: string;
   contacts: ExportedContact[];
   strategies: StrategyRow[];
+  context: ContextItem[];
   has_llm_config: boolean;
 }
 
@@ -50,6 +52,7 @@ export function exportTenant(tenantId: string, nowIso: string): TenantExport {
     exported_at: nowIso,
     contacts,
     strategies,
+    context: getContextItems(tenantId, { includeUnconfirmed: true }),
     has_llm_config: hasTenantLLM(tenantId),
   };
 }
@@ -58,6 +61,7 @@ export interface PurgeResult {
   contacts: number;
   notes: number;
   strategies: number;
+  context: number;
   llm_config: number;
 }
 
@@ -74,7 +78,8 @@ export function purgeTenant(tenantId: string): PurgeResult {
     const strategies = db.prepare(`DELETE FROM strategy_log WHERE tenant_id = ?`).run(tenantId)
       .changes;
     const contacts = db.prepare(`DELETE FROM contacts WHERE tenant_id = ?`).run(tenantId).changes;
+    const context = db.prepare(`DELETE FROM context_items WHERE tenant_id = ?`).run(tenantId).changes;
     const llm = db.prepare(`DELETE FROM tenant_secrets WHERE tenant_id = ?`).run(tenantId).changes;
-    return { contacts, notes, strategies, llm_config: llm };
+    return { contacts, notes, strategies, context, llm_config: llm };
   })();
 }
