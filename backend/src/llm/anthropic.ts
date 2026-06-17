@@ -25,6 +25,13 @@ const DEFAULT_MAX_TOKENS = 1024;
  *
  * No temperature/top_p/top_k/thinking/effort: the 4.x models reject several of
  * these (Haiku rejects `effort`), and short drafts don't need thinking.
+ *
+ * Caching caveat (per the model's minimum cacheable prefix): the cached block
+ * only actually caches if it clears the model's floor — 4096 tokens on Haiku 4.5
+ * / Opus, 2048 on Sonnet 4.6. A short voice profile (~3.7K tokens) may therefore
+ * SILENTLY not cache on the default `claude-haiku-4-5`; use `claude-sonnet-4-6`
+ * for a guaranteed cache, or let the prefix grow (ABOUT ME context helps). We log
+ * `usage.cache_read_input_tokens` after every call so this is verifiable.
  */
 export function createAnthropicProvider(cfg: AnthropicConfig): LLMProvider {
   const client = new Anthropic({ apiKey: cfg.apiKey });
@@ -79,6 +86,7 @@ export function createAnthropicProvider(cfg: AnthropicConfig): LLMProvider {
         const msg = await client.messages.create(buildPayload(instruction, context, opts), {
           signal: controller.signal,
         });
+        logUsage(cfg.model, msg.usage);
         const text = textOf(msg.content).trim();
         if (!text) {
           throw new Error(`anthropic returned empty content (stop_reason=${msg.stop_reason})`);
@@ -108,6 +116,7 @@ export function createAnthropicProvider(cfg: AnthropicConfig): LLMProvider {
           stream.on("text", (delta) => opts.onToken!(delta));
         }
         const msg = await stream.finalMessage();
+        logUsage(cfg.model, msg.usage);
         const text = textOf(msg.content).trim();
         if (!text) {
           throw new Error(`anthropic returned empty content (stop_reason=${msg.stop_reason})`);
@@ -120,6 +129,19 @@ export function createAnthropicProvider(cfg: AnthropicConfig): LLMProvider {
       }
     },
   };
+}
+
+// Log token usage, foregrounding the cache fields. `cache_read_input_tokens > 0`
+// on a repeat draft for the same thread confirms the voice prefix is being
+// served from cache; a persistent 0 means a silent invalidator (or the prefix is
+// below the model's minimum cacheable size — see the caching caveat above).
+function logUsage(model: string, u: Anthropic.Messages.Usage): void {
+  const read = u.cache_read_input_tokens ?? 0;
+  const write = u.cache_creation_input_tokens ?? 0;
+  const cacheNote = read === 0 && write === 0 ? " — NOT cached (prefix below the model's min, or invalidated)" : "";
+  console.log(
+    `[llm:anthropic] model=${model} in=${u.input_tokens} out=${u.output_tokens} cache_write=${write} cache_read=${read}${cacheNote}`,
+  );
 }
 
 // A message's content is a block array; concatenate the text blocks. Drafts are
