@@ -74,6 +74,47 @@ function bodyText(bodyEl: Element): string {
   return body.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+// When a message body is ENTIRELY a quoted reply chain (no new text above the
+// quote), the whole conversation lives inside the quote. Dropping the message
+// (as "no body") left the assistant with nothing to reply to — the actual bug
+// behind "gmail-zero-messages" on a real thread. Keep the quoted thread as the
+// body instead; its inline "On <date> <Name> wrote:" attributions are readable
+// to the model. Capped so a deep chain can't blow the prompt (newest is first).
+const QUOTED_THREAD_MAX = 6000;
+function quotedThreadText(bodyEl: Element): string {
+  const host = bodyEl as HTMLElement;
+  const full = (host.innerText ?? host.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
+  return full.length > QUOTED_THREAD_MAX
+    ? full.slice(0, QUOTED_THREAD_MAX) + "\n…(earlier history trimmed)"
+    : full;
+}
+
+// "On Thu, May 21, 2026 at 1:01 PM Jane Doe <jane@x.com> wrote:" → name + email.
+// The name sits right before <email>; we take everything before the '<' and strip
+// the leading "On <date> … <time>" prefix (cut after the last AM/PM or 4-digit
+// year) so only the sender name remains.
+function parseAttribution(s: string): { name: string; email: string } {
+  const em = s.match(/<([^>]+@[^>]+)>/);
+  const email = em ? em[1].toLowerCase() : "";
+  const before = (em ? s.slice(0, s.indexOf("<")) : s.replace(/\bwrote:.*$/i, "")).trim();
+  const name = before.replace(/^On\b.*\b(?:[AP]M|\d{4})\b[\s,]*/i, "").trim();
+  return { name, email };
+}
+
+// The most recent person named in the quoted chain who isn't me — used as the
+// contact when an all-quoted message can't yield a non-self sender of its own.
+function primaryOtherFromQuotes(bodyEl: Element, self: ResolvedSelf): string {
+  const attrs = bodyEl.querySelectorAll(".gmail_attr, .gmail_quote_attribution");
+  for (const a of Array.from(attrs)) {
+    const { name, email } = parseAttribution(text(a));
+    const isSelf =
+      (!!self.email && !!email && email === self.email) ||
+      (!!self.name && !!name && name.toLowerCase() === self.name.toLowerCase());
+    if (!isSelf && (name || email)) return name || email;
+  }
+  return "";
+}
+
 // One rendered body (`.a3s`) per expanded message. We anchor on the bodies —
 // NOT on a message-wrapper attribute like [data-message-id], which doesn't
 // reliably contain the body — then find the sender by walking UP to the nearest
@@ -93,21 +134,38 @@ function extractGmailMessages(self: ResolvedSelf, diag: ExtractionDiagnostics): 
   for (const bodyEl of bodyMatch.elements) {
     // Skip a body that is itself part of another message's quoted history.
     if (bodyEl.parentElement?.closest(".gmail_quote")) continue;
-    const body = bodyText(bodyEl);
-    if (!body) continue;
+    let body = bodyText(bodyEl);
+    // No new text above the quote → the conversation IS the quote. Keep it
+    // rather than dropping the only message on the thread.
+    const allQuoted = !body;
+    if (allQuoted) {
+      body = quotedThreadText(bodyEl);
+      if (!body) continue;
+    }
 
     const wrapper: ParentNode = bodyEl.closest(wrapperSel) ?? document;
     const senderEl = wrapper.querySelector(senderSel) as HTMLElement | null;
     if (senderEl) anySenderHit = true;
-    const name = senderEl?.getAttribute("name")?.trim() || text(senderEl) || "";
+    let name = senderEl?.getAttribute("name")?.trim() || text(senderEl) || "";
     const email = (senderEl?.getAttribute("email") || "").toLowerCase();
 
     const tsEl = wrapper.querySelector(tsSel);
     const ts = tsEl?.getAttribute("title")?.trim() || (tsEl ? text(tsEl) : undefined) || undefined;
 
-    const isSelf =
+    let isSelf =
       (!!self.email && !!email && email === self.email) ||
       (!!self.name && !!name && name.toLowerCase() === self.name.toLowerCase());
+
+    // An all-quoted message has no sender of its own (or it's the user's own
+    // reply wrapper). Attribute it to the most recent other party in the chain
+    // so the thread has a contact to reply to.
+    if (allQuoted && (isSelf || !name)) {
+      const other = primaryOtherFromQuotes(bodyEl, self);
+      if (other) {
+        name = other;
+        isSelf = false;
+      }
+    }
 
     out.push(makeMessage(name, isSelf, body, ts));
   }
