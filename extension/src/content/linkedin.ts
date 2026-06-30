@@ -137,20 +137,42 @@ function makeMessage(
   };
 }
 
-const MESSAGE_LIST_WAIT_MS = 4000;
+// 10s, not 4s: when you arrive at a thread by navigating in from another
+// LinkedIn surface (e.g. clicking "Message" on My Network), the messaging
+// bundle is cold and the SPA can keep the *previous* page mounted in `main`
+// for several seconds before the thread paints. A 4s ceiling expired against
+// that stale DOM and extracted zeros from the wrong page (the captured
+// "My Network" snapshot behind the extraction-render-race bug). Give the cold
+// load real headroom; we return the instant the thread is ready, so a warm
+// thread still resolves immediately and only a genuine never-loads waits long.
+const MESSAGE_LIST_WAIT_MS = 10000;
 const MESSAGE_LIST_POLL_MS = 100;
+// Once the container exists, give messages a brief window to hydrate before we
+// read. LinkedIn paints the empty list shell first, then fills it; reading in
+// between yields a container with zero events. If no event shows up within this
+// settle window we proceed anyway — a genuinely empty thread is a valid state.
+const MESSAGE_CONTENT_SETTLE_MS = 1500;
 
 /**
- * Wait for the message-list container to appear. LinkedIn's SPA paints a thread
- * asynchronously after a navigation or conversation switch, so extraction fired
- * immediately on open used to find nothing — all-null selectors and an empty
- * snapshot. Polls until the container is present or the timeout elapses; a no-op
- * (returns instantly) once it's already there.
+ * Wait for the message list to be READY to read — the container present AND
+ * either at least one message event hydrated or a short content-settle elapsed.
+ * LinkedIn's SPA paints a thread asynchronously after a navigation or
+ * conversation switch, so extraction fired immediately on open used to find
+ * nothing — all-null selectors and an empty snapshot. Returns the instant the
+ * thread is ready; a no-op (returns fast) once it's already painted.
  */
 async function waitForMessageList(timeoutMs = MESSAGE_LIST_WAIT_MS): Promise<boolean> {
   const start = performance.now();
+  let containerSince: number | null = null;
   for (;;) {
-    if (queryFirstChain(document, S.messageListContainer).elements[0]) return true;
+    const hasContainer = !!queryFirstChain(document, S.messageListContainer).elements[0];
+    if (hasContainer) {
+      if (containerSince === null) containerSince = performance.now();
+      // Ready as soon as a message event renders…
+      if (queryChain(document, S.messageEvent).elements.length > 0) return true;
+      // …or after the settle window (covers a legitimately empty thread).
+      if (performance.now() - containerSince >= MESSAGE_CONTENT_SETTLE_MS) return true;
+    }
     if (performance.now() - start >= timeoutMs) return false;
     await sleep(MESSAGE_LIST_POLL_MS);
   }

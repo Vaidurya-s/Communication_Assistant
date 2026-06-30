@@ -55,13 +55,26 @@ async function sendExtracted(trigger: "user" | "observer"): Promise<void> {
 
 function tryInstallObserver(): void {
   if (observer) return;
+  // Were we retrying because the list wasn't there yet? If so, this successful
+  // install means the thread painted LATE (the extraction-render-race case).
+  const installedLate = installRetryHandle !== null;
   observer = getCurrentExtractor()?.installMessageObserver(() => {
     void sendExtracted("observer");
   }) ?? null;
   if (!observer) {
     if (installRetryHandle !== null) window.clearTimeout(installRetryHandle);
     installRetryHandle = window.setTimeout(tryInstallObserver, 1000);
+    return;
   }
+  if (installRetryHandle !== null) {
+    window.clearTimeout(installRetryHandle);
+    installRetryHandle = null;
+  }
+  // A thread that finishes painting AFTER we install the observer fires no
+  // further mutations, so the observer alone would never re-extract it. Kick
+  // one extraction on a late install so lastContext / prefetch reflect the
+  // now-rendered thread instead of the stale pre-navigation page.
+  if (installedLate) void sendExtracted("observer");
 }
 
 /**
