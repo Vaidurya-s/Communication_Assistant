@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractLinkedInContext } from "./linkedin";
+import { hasLayoutAnomaly } from "./diagnostics";
 
 // extractLinkedInContext reads getSelfNameSetting() → chrome.storage.sync. Stub it.
 beforeEach(() => {
@@ -56,5 +57,28 @@ describe("linkedin extraction render-race", () => {
     const { context } = await extractLinkedInContext();
     expect(context.messages.length).toBe(1);
     expect(context.messages[0].sender).toBe("Dr. Bidrohi Bhattacharjee");
+  });
+
+  it("reports 'not mounted' (not a layout break) when the wrong surface is up", async () => {
+    // URL is a thread, but the document is the feed / My Network shell — zero
+    // `msg-*`-classed elements, so the messaging app plainly isn't mounted. This
+    // is the real captured failure: the SPA kept the wrong surface under a thread
+    // URL. Extraction must NOT claim the layout changed.
+    document.body.innerHTML = `<main id="workspace"><div class="feed-shared">No pending invitations</div></main>`;
+
+    const started = Date.now();
+    const { context, diagnostics } = await extractLinkedInContext();
+    const elapsedMs = Date.now() - started;
+
+    expect(context.messages.length).toBe(0);
+    expect(diagnostics.anomalies).toContain("messaging-thread-not-mounted");
+    // The honest state replaces the misleading selector-break anomalies…
+    expect(diagnostics.anomalies).not.toContain("message-list-container-missing");
+    expect(diagnostics.anomalies).not.toContain("zero-messages-on-thread-route");
+    // …and it isn't classified as a layout break (overlay shows guidance, not
+    // "save a snapshot to fix").
+    expect(hasLayoutAnomaly(diagnostics.anomalies)).toBe(false);
+    // Fast-bail: ~3s grace, not the full 10s budget. (Generous upper bound.)
+    expect(elapsedMs).toBeLessThan(8000);
   });
 });

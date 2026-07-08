@@ -152,6 +152,23 @@ const MESSAGE_LIST_POLL_MS = 100;
 // between yields a container with zero events. If no event shows up within this
 // settle window we proceed anyway — a genuinely empty thread is a valid state.
 const MESSAGE_CONTENT_SETTLE_MS = 1500;
+// A cold messaging bundle may not have painted the list container yet, but its
+// scaffold (hundreds of `msg-*`-classed elements) shows up quickly. If NOTHING
+// messaging-classed exists after this grace, the SPA isn't loading messaging in
+// this document at all — the URL is a thread but a different surface (feed / My
+// Network, which carries zero `msg-*` classes) is mounted. Bail then instead of
+// blocking the full budget against a page that will never yield a thread.
+const WRONG_SURFACE_GRACE_MS = 3000;
+
+/**
+ * Is LinkedIn's messaging app mounted (or actively mounting) in this document?
+ * True whenever any messaging-classed element is present — the whole messaging
+ * surface carries `msg-*` classes; the feed / My Network surface carries none.
+ * Cheap discriminator for "URL says thread but the thread isn't rendered here".
+ */
+function messagingSurfaceMounted(): boolean {
+  return !!document.querySelector("[class*='msg-']");
+}
 
 /**
  * Wait for the message list to be READY to read — the container present AND
@@ -159,7 +176,8 @@ const MESSAGE_CONTENT_SETTLE_MS = 1500;
  * LinkedIn's SPA paints a thread asynchronously after a navigation or
  * conversation switch, so extraction fired immediately on open used to find
  * nothing — all-null selectors and an empty snapshot. Returns the instant the
- * thread is ready; a no-op (returns fast) once it's already painted.
+ * thread is ready; a no-op (returns fast) once it's already painted. Also
+ * fast-bails when the messaging surface isn't mounting at all (wrong surface).
  */
 async function waitForMessageList(timeoutMs = MESSAGE_LIST_WAIT_MS): Promise<boolean> {
   const start = performance.now();
@@ -173,7 +191,14 @@ async function waitForMessageList(timeoutMs = MESSAGE_LIST_WAIT_MS): Promise<boo
       // …or after the settle window (covers a legitimately empty thread).
       if (performance.now() - containerSince >= MESSAGE_CONTENT_SETTLE_MS) return true;
     }
-    if (performance.now() - start >= timeoutMs) return false;
+    const elapsed = performance.now() - start;
+    // Wrong surface: no messaging scaffold at all after the grace → waiting the
+    // full budget is pointless. (A genuine slow load shows msg-* scaffold well
+    // within the grace, so this never trips on a real messaging page.)
+    if (!hasContainer && elapsed >= WRONG_SURFACE_GRACE_MS && !messagingSurfaceMounted()) {
+      return false;
+    }
+    if (elapsed >= timeoutMs) return false;
     await sleep(MESSAGE_LIST_POLL_MS);
   }
 }
@@ -190,6 +215,32 @@ export async function extractLinkedInContext(): Promise<ExtractionResult> {
   // this page" with every selector null).
   if (window.location.pathname.includes("/messaging/thread/")) {
     await waitForMessageList();
+
+    // URL is a thread, but the messaging app never mounted here — LinkedIn kept a
+    // different surface (feed / My Network) in place after a soft navigation.
+    // This is NOT a selector break, so don't emit the "layout changed" anomalies
+    // or parse a foreign page (that produced the misleading 120k My-Network debug
+    // snapshots). Report one honest, actionable state and stop.
+    if (!messagingSurfaceMounted()) {
+      diag.anomalies.push("messaging-thread-not-mounted");
+      diag.extractedAt = new Date().toISOString();
+      return {
+        context: {
+          platform: "linkedin",
+          conversation_title: "",
+          participants: [],
+          messages: [],
+          current_draft: "",
+          page_metadata: {
+            url: window.location.href,
+            title: document.title,
+            extracted_at: diag.extractedAt,
+          },
+          contact_profile_url: null,
+        },
+        diagnostics: diag,
+      };
+    }
   }
 
   const titleMatch = firstMatchText(S.conversationTitle);

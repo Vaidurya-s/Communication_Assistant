@@ -44,6 +44,13 @@ export type Anomaly =
   | "self-name-configured-but-unmatched"
   /** The whole messageEvent chain returned 0 elements (DOM may have changed). */
   | "no-message-events-matched"
+  /**
+   * URL is a /messaging/thread/ but LinkedIn's messaging app isn't mounted in
+   * this document (the SPA kept a different surface — feed / My Network — in
+   * place after a soft navigation). NOT a selector break: the thread simply
+   * isn't loaded here, so waiting or fixing selectors won't help.
+   */
+  | "messaging-thread-not-mounted"
   /** Gmail: a thread is open (subject present) but no expanded message bodies were parsed. */
   | "gmail-zero-messages";
 
@@ -115,6 +122,8 @@ export function describeAnomaly(a: Anomaly): string {
       return "couldn't find the message list";
     case "no-message-events-matched":
       return "couldn't find any messages";
+    case "messaging-thread-not-mounted":
+      return "this conversation isn't loaded in this tab yet — reload the page or open it from Messaging, then try again";
     case "gmail-zero-messages":
       return "couldn't read the email's messages";
     case "self-name-configured-but-unmatched":
