@@ -203,6 +203,12 @@ export const OVERLAY_CSS = `
 .ca-retry:hover { background: var(--danger-soft); }
 
 /* Voice lint heads-up */
+/* Shown while the model is silent — a long wait reads as a hang without it. */
+.ca-waiting {
+  font-size: 11.5px; color: color-mix(in srgb, var(--text) 65%, transparent);
+  padding: 2px 2px 0;
+}
+
 .ca-lint {
   font-size: 11px; color: var(--warn, #e0a83a); background: rgba(224, 168, 58, 0.08);
   border: 1px solid rgba(224, 168, 58, 0.28); border-radius: 8px; padding: 5px 9px;

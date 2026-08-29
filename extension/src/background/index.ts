@@ -440,7 +440,12 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
         const evt = parseSseEvent(buffer.slice(0, idx));
         buffer = buffer.slice(idx + 2);
         if (!evt) continue;
-        if (evt.event === "token") {
+        if (evt.event === "ping") {
+          // Relayed onward as a real port message: posting on the port is what
+          // actually resets this service worker's idle timer, and it lets the
+          // overlay show that the model is still working.
+          send({ type: "ping", waitedMs: (evt.data.waited_ms as number) ?? 0 });
+        } else if (evt.event === "token") {
           send({ type: "token", t: (evt.data.t as string) ?? "" });
         } else if (evt.event === "reply_done") {
           lastReply = (evt.data.suggested_reply as string) ?? "";

@@ -170,6 +170,10 @@ export function Overlay({ onClose, coldOpen }: Props) {
   // no alternative on screen; "" = one is streaming in.
   const [variant, setVariant] = useState<string | null>(null);
   const [variantLoading, setVariantLoading] = useState(false);
+  // Seconds spent waiting on the model, from the stream's heartbeat. Some
+  // providers take a minute or more before the first token, and without this the
+  // overlay just sat there looking broken.
+  const [waitedSec, setWaitedSec] = useState<number | null>(null);
   // "Add to my corpus": a reviewed exchange on its way to voice_profile/. null =
   // the panel is closed. The review step is the trust gate — see corpus.ts.
   const [corpusDraft, setCorpusDraft] = useState<
@@ -340,6 +344,7 @@ export function Overlay({ onClose, coldOpen }: Props) {
         // spinner rather than the shared loading status (which would grey out
         // the mode buttons and make the first draft look like it was replaced).
         const isVariation = !!opts?.variationOf;
+        setWaitedSec(null);
         if (isVariation) {
           setVariantLoading(true);
           setVariant("");
@@ -369,6 +374,7 @@ export function Overlay({ onClose, coldOpen }: Props) {
         const finish = () => {
           if (settled) return;
           settled = true;
+          setWaitedSec(null);
           try {
             port.disconnect();
           } catch {
@@ -397,8 +403,16 @@ export function Overlay({ onClose, coldOpen }: Props) {
         };
 
         port.onMessage.addListener((ev: AnalyzeStreamEvent) => {
+          if (ev.type === "ping") {
+            // Liveness only — the model hasn't produced anything yet. Surfacing
+            // the elapsed time is the difference between "slow" and "broken".
+            setWaitedSec(Math.round(ev.waitedMs / 1000));
+            setBackendHealth("online");
+            return;
+          }
           if (ev.type === "token") {
             acc += ev.t;
+            setWaitedSec(null);
             if (isVariation) setVariant(acc);
             else setPreview(acc);
             setBackendHealth("online");
@@ -828,6 +842,12 @@ export function Overlay({ onClose, coldOpen }: Props) {
                 rows={6}
               />
 
+              {waitedSec !== null && (
+                <div className="ca-waiting">
+                  Still writing — {waitedSec}s. Some providers take a while before the first word.
+                </div>
+              )}
+
               {lintTerms.length > 0 && status.kind !== "loading" && (
                 <div className="ca-lint" title="From your own 'avoid' list in your voice profile">
                   ⚠ You usually avoid: {lintTerms.map((t) => `“${t}”`).join(", ")}
@@ -1083,6 +1103,12 @@ export function Overlay({ onClose, coldOpen }: Props) {
             className="ca-preview"
             rows={6}
           />
+
+          {waitedSec !== null && (
+            <div className="ca-waiting">
+              Still writing — {waitedSec}s. Some providers take a while before the first word.
+            </div>
+          )}
 
           {lintTerms.length > 0 && status.kind !== "loading" && (
             <div className="ca-lint" title="From your own 'avoid' list in your voice profile">

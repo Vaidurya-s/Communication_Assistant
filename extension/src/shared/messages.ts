@@ -41,6 +41,12 @@ export const ANALYZE_STREAM_PORT = "analyze-stream";
 
 export type AnalyzeStreamEvent =
   | { type: "token"; t: string }
+  /**
+   * Liveness ping while the model is still thinking. Carries how long we have
+   * been waiting so the overlay can show progress; its real job is to keep the
+   * MV3 service worker from being torn down during a long silent wait.
+   */
+  | { type: "ping"; waitedMs: number }
   | { type: "reply_done"; suggested_reply: string; stats?: Record<string, unknown> }
   | { type: "insight"; memory_proposal: BackendResponse["memory_proposal"]; strategy: BackendResponse["strategy"] }
   | { type: "done" }

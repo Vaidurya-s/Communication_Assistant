@@ -74,6 +74,11 @@ import { appendExchange, loadCorpusExchanges, type ExchangeTurn } from "./corpus
 // convey rhythm without crowding the conversation itself out of attention.
 const MAX_FEWSHOT_EXAMPLES = 2;
 
+// How often to ping an open SSE stream while waiting on the model. Comfortably
+// under Chrome's ~30s MV3 service-worker idle timeout — see the heartbeat in
+// /analyze for why that matters.
+const STREAM_HEARTBEAT_MS = 10_000;
+
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
   "continue_draft",
@@ -336,6 +341,21 @@ app.post("/analyze", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     const sse = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+    // HEARTBEAT. Time-to-first-token is provider-dependent and can be very
+    // long — measured at 119 SECONDS of total silence on one hosted endpoint
+    // before the first token, then the whole reply in 4. Chrome tears down an
+    // MV3 service worker after ~30s of inactivity, so that silence killed the
+    // worker mid-request and the overlay reported "stream disconnected" instead
+    // of drafting. A periodic ping keeps the connection demonstrably alive,
+    // resets the worker's idle timer, and lets the overlay show progress rather
+    // than looking frozen. Relays that don't know the event ignore it, so this
+    // is backward-compatible.
+    const startedAt = Date.now();
+    const heartbeat = setInterval(() => {
+      sse("ping", { waited_ms: Date.now() - startedAt });
+    }, STREAM_HEARTBEAT_MS);
+
     try {
       const reply = await provider.runStream(instruction, context, {
         tenantId: t,
@@ -359,6 +379,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
       console.error("[analyze:stream] reply failed:", err);
       sse("error", { error: (err as Error)?.message ?? "reply failed" });
     } finally {
+      clearInterval(heartbeat);
       res.end();
     }
     return;
