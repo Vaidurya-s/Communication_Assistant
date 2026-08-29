@@ -20,6 +20,7 @@
  */
 
 import { tokenize } from "./contextRetrieval.js";
+import { sanitizeContactName } from "./contactName.js";
 
 export interface PatternNote {
   contact_name: string;
@@ -151,33 +152,17 @@ export function findRecurringTopics(input: PatternInput, opts: TopicOptions = {}
 /** Longest run of contact names to spell out before summarising the remainder. */
 const NAMES_IN_PROSE = 4;
 
-/** Nobody's display name is longer than this; past it we're into scraped chrome. */
-const MAX_NAME_LEN = 40;
-
-/**
- * Trailing UI chrome that thread-title extraction sometimes swallows into the
- * contact name. Real example from the database: "Divyanshu Gupta Status is
- * reachable Mobile • 10h". The bullet and the presence wording never occur in a
- * person's name, so they're a safe place to cut.
- */
-const NAME_CHROME = /\s*(?:[•·]|\bstatus is\b|\bis reachable\b|\bactive now\b).*$/i;
-
 /**
  * Contact names, cleaned up for a sentence.
  *
- * Names come from scraped DOM, and a bad extraction can leave one carrying
- * newlines and adjacent interface text — both seen in real data. This proposal
- * becomes the body of a trusted ABOUT ME item once adopted, so a malformed name
- * must not ride into a prompt.
- *
- * NOTE: this is damage control, not the fix. The pollution belongs to whatever
- * wrote the row; cleaning it here keeps one bad name from poisoning a proposal,
- * but the stored `contacts.name` is still wrong.
+ * Names are sanitized at the write boundary now (`memory.ts`), and the stored
+ * rows were cleaned by the migration in `db.ts`. This stays as defence in depth
+ * — a proposal body becomes a trusted ABOUT ME item once adopted, so it is the
+ * last place a malformed name could ride into a prompt — and additionally
+ * summarises a long tail rather than listing a dozen people.
  */
 function namesForProse(contacts: string[]): string {
-  const clean = contacts
-    .map((c) => c.replace(/\s+/g, " ").trim().replace(NAME_CHROME, "").trim().slice(0, MAX_NAME_LEN))
-    .filter(Boolean);
+  const clean = contacts.map(sanitizeContactName).filter(Boolean);
   if (clean.length <= NAMES_IN_PROSE) return clean.join(", ");
   const rest = clean.length - NAMES_IN_PROSE;
   return `${clean.slice(0, NAMES_IN_PROSE).join(", ")} and ${rest} other${rest === 1 ? "" : "s"}`;

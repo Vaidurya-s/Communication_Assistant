@@ -43,6 +43,7 @@ import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
 import { exportTenant, purgeTenant } from "./tenantData.js";
 import { checkRate } from "./rateLimit.js";
+import { isPollutedName } from "./contactName.js";
 import {
   addContextItem,
   confirmContextItem,
@@ -545,6 +546,32 @@ app.post("/snapshots", (req: Request, res: Response) => {
 app.get("/snapshots", (req: Request, res: Response) => {
   try {
     res.json({ snapshots: listSnapshots(tenant(req)) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Data health -----------------------------------------------------------
+//
+// The detector this project didn't have. Two silent failures ran for months
+// without anything surfacing them: profile enrichment stopped working when
+// LinkedIn changed its layout (39 of 41 contacts had no headline), and a
+// contact name was stored with scraped UI text in it. Both were found by
+// accident. This makes the same class of rot visible on the Overview tab.
+app.get("/memory/health", (req: Request, res: Response) => {
+  try {
+    const contacts = getAllContacts(tenant(req));
+    const total = contacts.length;
+    const noEnrichment = contacts.filter((c) => !c.headline && !c.role && !c.company);
+    const malformed = contacts.filter((c) => isPollutedName(c.name));
+    const noNotes = contacts.filter((c) => c.note_count === 0);
+    res.json({
+      contacts: total,
+      no_enrichment: { count: noEnrichment.length, sample: noEnrichment.slice(0, 5).map((c) => c.name) },
+      malformed_names: { count: malformed.length, sample: malformed.slice(0, 5).map((c) => c.name) },
+      no_notes: { count: noNotes.length },
+      unconfirmed_notes: contacts.reduce((n, c) => n + c.unconfirmed_count, 0),
+    });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

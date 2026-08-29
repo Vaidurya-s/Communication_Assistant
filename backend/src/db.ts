@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { sanitizeContactName } from "./contactName.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 
@@ -11,8 +12,15 @@ function dbPath(): string {
 }
 
 // Bumped whenever a structural (table-rebuild) migration ships. Tracked via
-// PRAGMA user_version so each rebuild runs exactly once. v1 = H1b composite PK.
-const SCHEMA_VERSION = 1;
+// PRAGMA user_version so each rebuild runs exactly once. v1 = H1b composite PK,
+// v2 = one-off cleanup of contact names polluted by scraped UI chrome.
+//
+// Each migration gates on and stamps its OWN version, never the latest. Gating
+// on a shared "latest" constant means adding v2 makes the v1 migration re-run
+// and stamp 2, which silently skips v2 on exactly the databases that need it.
+const PK_SCHEMA_VERSION = 1;
+const NAME_CLEANUP_VERSION = 2;
+const SCHEMA_VERSION = NAME_CLEANUP_VERSION;
 
 let db: Database.Database | null = null;
 
@@ -163,6 +171,9 @@ export function getDb(): Database.Database {
   // (tenant_id, name) model. Gated by PRAGMA user_version so it runs once.
   migrateToCompositePk(db);
 
+  // v2: clean contact names that were stored before sanitizeContactName existed.
+  migrateContactNames(db);
+
   return db;
 }
 
@@ -203,7 +214,7 @@ function ensureColumn(d: Database.Database, table: string, column: string, type:
  */
 function migrateToCompositePk(d: Database.Database): void {
   const version = d.pragma("user_version", { simple: true }) as number;
-  if (version >= SCHEMA_VERSION) return;
+  if (version >= PK_SCHEMA_VERSION) return;
 
   const pkCols = (
     d.prepare(`PRAGMA table_info(contacts)`).all() as Array<{ name: string; pk: number }>
@@ -284,5 +295,111 @@ function migrateToCompositePk(d: Database.Database): void {
     }
   }
 
-  d.pragma(`user_version = ${SCHEMA_VERSION}`);
+  d.pragma(`user_version = ${PK_SCHEMA_VERSION}`);
+}
+
+/**
+ * v2 — clean contact names polluted by scraped interface text.
+ *
+ * `upsertContact` now sanitizes on the way in, but rows written before that
+ * keep their bad names, and those names are the composite PK plus the FK on
+ * every note. A real row in the live database read "Divyanshu Gupta Status is
+ * reachable Mobile • 10h".
+ *
+ * The awkward case is COLLISION: cleaning a name can land it on top of a row
+ * that already exists under the clean spelling — the same person, forked into
+ * two contacts by a bad scrape. That's the case worth getting right, because a
+ * half-migrated primary key is nasty to recover from, so we merge rather than
+ * fail or clobber: notes and strategy entries move to the survivor, the earliest
+ * `first_seen` and latest `last_seen` win, and any column the survivor is
+ * missing is filled from the duplicate before it's dropped.
+ *
+ * Gated by PRAGMA user_version, and idempotent regardless: a second run finds
+ * nothing to clean.
+ */
+function migrateContactNames(d: Database.Database): void {
+  const version = (d.pragma("user_version", { simple: true }) as number) ?? 0;
+  if (version >= NAME_CLEANUP_VERSION) return;
+
+  const rows = d.prepare(`SELECT tenant_id, name FROM contacts`).all() as Array<{
+    tenant_id: string;
+    name: string;
+  }>;
+  const dirty = rows
+    .map((r) => ({ ...r, clean: sanitizeContactName(r.name) }))
+    .filter((r) => r.clean && r.clean !== r.name);
+
+  if (dirty.length > 0) {
+    const existing = new Set(rows.map((r) => `${r.tenant_id}\u0000${r.name}`));
+
+    const migrate = d.transaction(() => {
+      for (const row of dirty) {
+        const collides = existing.has(`${row.tenant_id}\u0000${row.clean}`);
+
+        if (!collides) {
+          // Simple rename. Children first — the FK is ON DELETE CASCADE, not
+          // ON UPDATE CASCADE, so the rows have to be carried across by hand.
+          d.prepare(
+            `UPDATE notes SET contact_name = ? WHERE tenant_id = ? AND contact_name = ?`,
+          ).run(row.clean, row.tenant_id, row.name);
+          d.prepare(
+            `UPDATE strategy_log SET contact_name = ? WHERE tenant_id = ? AND contact_name = ?`,
+          ).run(row.clean, row.tenant_id, row.name);
+          d.prepare(`UPDATE contacts SET name = ? WHERE tenant_id = ? AND name = ?`).run(
+            row.clean,
+            row.tenant_id,
+            row.name,
+          );
+          existing.delete(`${row.tenant_id}\u0000${row.name}`);
+          existing.add(`${row.tenant_id}\u0000${row.clean}`);
+          continue;
+        }
+
+        // Merge into the existing clean row: same person, two rows.
+        d.prepare(
+          `UPDATE notes SET contact_name = ? WHERE tenant_id = ? AND contact_name = ?`,
+        ).run(row.clean, row.tenant_id, row.name);
+        d.prepare(
+          `UPDATE strategy_log SET contact_name = ? WHERE tenant_id = ? AND contact_name = ?`,
+        ).run(row.clean, row.tenant_id, row.name);
+        d.prepare(
+          `
+          UPDATE contacts AS keep SET
+            first_seen = MIN(keep.first_seen, (SELECT dup.first_seen FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            last_seen  = MAX(keep.last_seen,  (SELECT dup.last_seen  FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            last_thread_url        = COALESCE(keep.last_thread_url,        (SELECT dup.last_thread_url        FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            suggested_followup_at  = COALESCE(keep.suggested_followup_at,  (SELECT dup.suggested_followup_at  FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            profile_url            = COALESCE(keep.profile_url,            (SELECT dup.profile_url            FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            headline               = COALESCE(keep.headline,               (SELECT dup.headline               FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            role                   = COALESCE(keep.role,                   (SELECT dup.role                   FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            company                = COALESCE(keep.company,                (SELECT dup.company                FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            location               = COALESCE(keep.location,               (SELECT dup.location               FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?)),
+            about                  = COALESCE(keep.about,                  (SELECT dup.about                  FROM contacts dup WHERE dup.tenant_id = ? AND dup.name = ?))
+          WHERE keep.tenant_id = ? AND keep.name = ?
+          `,
+        ).run(...Array(10).fill([row.tenant_id, row.name]).flat(), row.tenant_id, row.clean);
+        d.prepare(`DELETE FROM contacts WHERE tenant_id = ? AND name = ?`).run(
+          row.tenant_id,
+          row.name,
+        );
+        existing.delete(`${row.tenant_id}\u0000${row.name}`);
+      }
+    });
+
+    // FK enforcement has to come off around this. `notes` references
+    // contacts(tenant_id, name) — renaming the parent orphans the children, and
+    // repointing the children first breaks against a parent that doesn't exist
+    // under the new name yet. There is no ordering that satisfies the
+    // constraint mid-rename. The pragma is a no-op inside a transaction, so it
+    // toggles outside, exactly as migrateToCompositePk does.
+    d.pragma("foreign_keys = OFF");
+    try {
+      migrate();
+    } finally {
+      d.pragma("foreign_keys = ON");
+    }
+    console.log(`[db] v2: cleaned ${dirty.length} polluted contact name(s)`);
+  }
+
+  d.pragma(`user_version = ${NAME_CLEANUP_VERSION}`);
 }
