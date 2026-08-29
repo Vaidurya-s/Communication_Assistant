@@ -4,14 +4,28 @@
  *   npm run voice:eval            (from backend/)   — or from root
  *
  * Generates replies for a fixed set of fictional scenarios THROUGH THE REAL
- * pipeline (buildPrompt → runLLM, the same path as /analyze), then scores how
+ * pipeline (buildPrompt → runLLM, the same inputs as /analyze), then scores how
  * well they match your voice: deterministic heuristics (length fit vs your real
  * corpus, no-cliché) + an LLM judge. Prints a 0–100 voice score and writes a
  * JSON report so you can compare before/after a prompt or profile change.
  *
- * Privacy: scenarios are fictional; your corpus is read only as word-count
- * statistics (never sent to the judge or committed); the report lands in the
- * gitignored backend/data/.
+ * Privacy: scenarios are fictional; the corpus is read as word-count statistics
+ * for length calibration and as few-shot examples for the draft, but is never
+ * sent to the JUDGE and never committed; the report lands in the gitignored
+ * backend/data/.
+ *
+ * KEEPING THIS HONEST: the harness only measures what it actually feeds the
+ * model. It used to pass just {ctx, voiceProfile, mode, steer} while /analyze
+ * had grown to inject ABOUT ME items and ranked few-shot examples too — so it
+ * was silently scoring a pipeline that no longer existed, and no amount of
+ * retrieval work could ever move the number. It now builds the same inputs
+ * /analyze does. If you add another input there, add it here or this stops
+ * measuring the product.
+ *
+ * Flags (for before/after comparison):
+ *   --no-examples   omit the few-shot corpus examples
+ *   --no-aboutme    omit the ABOUT ME context items
+ * Both are recorded in the report so two runs can be compared meaningfully.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -20,6 +34,9 @@ import { buildPrompt } from "../prompt.js";
 import { loadVoiceProfile } from "../voiceProfile.js";
 import { ensureWorkspace } from "../workspace.js";
 import { SCENARIOS } from "./scenarios.js";
+import { loadCorpusExchanges } from "../corpus.js";
+import { selectAboutMeContext, selectRelevantContext } from "../contextRetrieval.js";
+import { getConfirmedContext } from "../context.js";
 import {
   composite,
   corpusLengthBand,
@@ -66,7 +83,22 @@ function readCorpus(): string {
   return parts.join("\n\n");
 }
 
+/**
+ * The ranking signal for a scenario, mirroring the `aboutSignal` /analyze builds
+ * from the contact profile plus recent messages. Scenarios carry no profile, so
+ * it's the title and the conversation.
+ */
+function signalFor(sc: (typeof SCENARIOS)[number]): string {
+  return [sc.ctx.conversation_title, ...sc.ctx.messages.map((m) => m.text), sc.ctx.current_draft]
+    .filter(Boolean)
+    .join(" ");
+}
+
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  const useExamples = !argv.includes("--no-examples");
+  const useAboutMe = !argv.includes("--no-aboutme");
+
   const voice = loadVoiceProfile();
   if (voice.length < 40) {
     console.error("Voice profile missing or empty — run `npm run init-voice` first.");
@@ -75,6 +107,14 @@ async function main(): Promise<void> {
 
   const band: LengthBand = corpusLengthBand(splitCorpus(readCorpus()));
   console.log(`Voice profile: ${voice.length} chars.`);
+
+  // Same inputs /analyze assembles, so the score reflects the real product.
+  const corpus = useExamples ? loadCorpusExchanges() : [];
+  const contextItems = useAboutMe ? getConfirmedContext("local") : [];
+  console.log(
+    `Inputs: few-shot ${useExamples ? `ON (${corpus.length} exchanges available)` : "OFF"} · ` +
+      `ABOUT ME ${useAboutMe ? `ON (${contextItems.length} confirmed items)` : "OFF"}`,
+  );
   console.log(`Your corpus length band (words): p10=${band.p10} · median=${band.median} · p90=${band.p90}`);
   console.log(
     `\nGenerating ${SCENARIOS.length} replies via the configured LLM ` +
@@ -85,11 +125,21 @@ async function main(): Promise<void> {
 
   const rows: Array<{ name: string; reply: string; words: number; cliche: ReturnType<typeof noClicheScore> }> = [];
   for (const sc of SCENARIOS) {
+    const signal = signalFor(sc);
     const { instruction, context } = buildPrompt({
       ctx: sc.ctx,
       voiceProfile: voice,
       mode: sc.mode,
       steer: sc.steer,
+      aboutMe: selectAboutMeContext(contextItems, signal).map((c) => ({
+        type: c.type,
+        title: c.title,
+        body: c.body,
+      })),
+      examples: selectRelevantContext(corpus, signal, { max: 2 }).map((e) => ({
+        title: e.title,
+        body: e.body,
+      })),
     });
     // Retry once on an empty reply — gemini-cli occasionally returns nothing on
     // its cold first call, which would otherwise tank an otherwise-fine score.
@@ -171,7 +221,23 @@ async function main(): Promise<void> {
   if (!existsSync(REPORT_DIR)) mkdirSync(REPORT_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const file = join(REPORT_DIR, `eval-${stamp}.json`);
-  writeFileSync(file, JSON.stringify({ overall, band, voiceChars: voice.length, report }, null, 2), "utf-8");
+  writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        overall,
+        // Recorded so two reports are actually comparable — an overall score
+        // means nothing without knowing which inputs produced it.
+        inputs: { examples: useExamples, aboutMe: useAboutMe, corpusExchanges: corpus.length },
+        band,
+        voiceChars: voice.length,
+        report,
+      },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
   console.log(`\nReport: ${file}`);
 }
 
