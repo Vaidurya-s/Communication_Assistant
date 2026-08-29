@@ -16,3 +16,8 @@ voice_profile/*
 !voice_profile/README.md
 !voice_profile/templates/
 !voice_profile/templates/**
+
+# Demo/recording artifacts — large binaries that must never enter history.
+# The narration script (VIDEO.md) is tracked; the render and its captions are not.
+Communication_Assistant*.mp4
+Communication_Assistant*.srt

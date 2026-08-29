@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Comms Assistant — Investor Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ─── DESIGN TOKENS ──────────────────────────── */
+:root{
+  --void:#07090F;
+  --surface:#0C1018;
+  --raise:#111826;
+  --border:rgba(255,255,255,.07);
+  --gold:#C9A84C;
+  --gold-bright:#E8C547;
+  --blue:#1A6EE8;
+  --red:#E84A1A;
+  --cream:#EDE8DF;
+  --muted:#6B7A94;
+  --dim:#2A3347;
+  --serif:'DM Serif Display',serif;
+  --sans:'Syne',sans-serif;
+  --mono:'IBM Plex Mono',monospace;
+  --gold-glow:rgba(201,168,76,.12);
+  --blue-glow:rgba(26,110,232,.1);
+}
+
+/* ─── BASE ───────────────────────────────────── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--void);
+  color:var(--cream);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.7;
+  overflow-x:hidden;
+}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:var(--gold)}
+
+/* ─── NOISE TEXTURE ──────────────────────────── */
+body::after{
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity:.025;
+  pointer-events:none;
+  z-index:9998;
+}
+
+/* ─── LAYOUT ─────────────────────────────────── */
+.page{max-width:1080px;margin:0 auto;padding:0 48px 120px}
+
+/* ─── COVER ──────────────────────────────────── */
+.cover{
+  min-height:100vh;
+  display:grid;
+  grid-template-rows:auto 1fr auto;
+  padding:52px 0 48px;
+  position:relative;
+  border-bottom:1px solid var(--border);
+}
+.cover-bar{display:flex;justify-content:space-between;align-items:center}
+.cb-brand{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--gold);text-transform:uppercase}
+.cb-status{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.cb-status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold);animation:glow 2.5s ease infinite}
+@keyframes glow{0%,100%{opacity:1}50%{opacity:.4}}
+
+.cover-body{display:flex;flex-direction:column;justify-content:center;padding:60px 0 40px}
+.cover-kicker{
+  font-family:var(--mono);font-size:11px;letter-spacing:3px;
+  color:var(--gold);text-transform:uppercase;
+  display:flex;align-items:center;gap:14px;margin-bottom:28px;
+}
+.cover-kicker::after{content:'';flex:0 0 48px;height:1px;background:var(--gold)}
+
+.cover-headline{
+  font-family:var(--serif);
+  font-size:clamp(54px,7vw,88px);
+  line-height:1.05;
+  letter-spacing:-.5px;
+  color:var(--cream);
+  margin-bottom:8px;
+}
+.cover-headline em{font-style:italic;color:var(--gold)}
+.cover-headline .break{display:block}
+
+.cover-deck{
+  font-size:18px;font-weight:400;
+  color:var(--muted);max-width:600px;
+  margin-top:24px;line-height:1.8;
+}
+
+.cover-stats{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--border);
+  padding-top:36px;margin-top:48px;
+  gap:0;
+}
+.cs-item{padding-right:32px;border-right:1px solid var(--border)}
+.cs-item:last-child{border-right:none;padding-right:0;padding-left:32px}
+.cs-item:not(:first-child):not(:last-child){padding:0 32px}
+.cs-num{font-family:var(--serif);font-size:40px;color:var(--gold-bright);line-height:1;margin-bottom:4px}
+.cs-label{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.8px;text-transform:uppercase}
+
+/* ─── SECTION SCAFFOLDING ─────────────────────── */
+.section{padding:88px 0 0}
+.section-eyebrow{
+  font-family:var(--mono);font-size:10px;
+  letter-spacing:3px;color:var(--gold);
+  text-transform:uppercase;
+  display:flex;align-items:center;gap:12px;
+  margin-bottom:18px;
+}
+.section-eyebrow .sn{color:var(--dim);margin-right:2px}
+h2.section-title{
+  font-family:var(--serif);
+  font-size:clamp(34px,4.5vw,52px);
+  line-height:1.1;color:var(--cream);
+  letter-spacing:-.3px;margin-bottom:16px;
+}
+h2.section-title em{font-style:italic;color:var(--gold)}
+.section-lead{
+  font-size:16px;font-weight:400;
+  color:var(--muted);max-width:680px;
+  line-height:1.85;margin-bottom:48px;
+}
+
+/* ─── PROBLEM SECTION ────────────────────────── */
+.problem-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border)}
+.problem-card{background:var(--surface);padding:36px;position:relative;overflow:hidden;transition:.3s}
+.problem-card:hover{background:var(--raise)}
+.problem-card::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:2px;
+  background:var(--gold);transform:scaleX(0);transform-origin:left;
+  transition:.4s;
+}
+.problem-card:hover::after{transform:scaleX(1)}
+.pc-stat{
+  font-family:var(--serif);
+  font-size:clamp(48px,5vw,72px);
+  color:var(--gold-bright);line-height:1;
+  margin-bottom:16px;letter-spacing:-1px;
+}
+.pc-headline{
+  font-size:16px;font-weight:700;
+  color:var(--cream);margin-bottom:10px;
+}
+.pc-body{font-size:13.5px;color:var(--muted);line-height:1.75}
+
+/* ─── PULL QUOTE ─────────────────────────────── */
+.pull-quote{
+  margin:72px -48px;
+  padding:64px 80px;
+  background:linear-gradient(135deg,rgba(201,168,76,.06) 0%,transparent 60%);
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  position:relative;
+}
+.pull-quote::before{
+  content:'\201C';
+  font-family:var(--serif);
+  font-size:200px;color:var(--gold);
+  opacity:.06;
+  position:absolute;top:-20px;left:48px;
+  line-height:1;pointer-events:none;
+}
+.pq-text{
+  font-family:var(--serif);
+  font-size:clamp(24px,3vw,36px);
+  line-height:1.5;color:var(--cream);
+  font-style:italic;max-width:780px;
+  position:relative;z-index:1;
+}
+.pq-text em{color:var(--gold);font-style:normal}
+.pq-source{
+  font-family:var(--mono);font-size:11px;
+  color:var(--muted);letter-spacing:1.5px;
+  margin-top:20px;text-transform:uppercase;
+}
+
+/* ─── HOW IT WORKS ───────────────────────────── */
+.how-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start}
+.how-steps{display:flex;flex-direction:column;gap:0}
+.how-step{
+  display:flex;gap:24px;padding:28px 0;
+  border-bottom:1px solid var(--border);
+  transition:.2s;
+}
+.how-step:hover .hs-num{color:var(--gold);border-color:var(--gold)}
+.hs-num{
+  font-family:var(--serif);font-size:32px;
+  color:var(--dim);line-height:1;
+  min-width:40px;padding-top:4px;
+  border-right:1px solid var(--border);
+  padding-right:24px;transition:.2s;
+}
+.hs-content{}
+.hs-title{font-size:15px;font-weight:700;color:var(--cream);margin-bottom:6px}
+.hs-desc{font-size:13.5px;color:var(--muted);line-height:1.7}
+.how-visual{position:sticky;top:40px}
+.how-diagram{
+  background:var(--surface);
+  border:1px solid var(--border);
+  padding:32px;
+  position:relative;
+  overflow:hidden;
+}
+.how-diagram::before{
+  content:'';position:absolute;
+  top:-60px;right:-60px;
+  width:200px;height:200px;
+  background:radial-gradient(circle,var(--gold-glow) 0%,transparent 70%);
+  pointer-events:none;
+}
+
+/* ─── MOAT / DIFFERENTIATION ─────────────────── */
+.moat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.moat-card{
+  padding:32px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  position:relative;
+  transition:.25s;
+}
+.moat-card:hover{
+  border-color:rgba(201,168,76,.3);
+  transform:translateY(-4px);
+  box-shadow:0 24px 60px rgba(0,0,0,.4);
+}
+.mc-icon{
+  width:44px;height:44px;
+  background:var(--gold-glow);
+  border:1px solid rgba(201,168,76,.2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;margin-bottom:20px;
+}
+.mc-title{font-size:14px;font-weight:700;color:var(--cream);margin-bottom:10px;letter-spacing:.3px}
+.mc-body{font-size:13px;color:var(--muted);line-height:1.7}
+.mc-tag{
+  display:inline-block;margin-top:14px;
+  font-family:var(--mono);font-size:10px;
+  padding:3px 10px;letter-spacing:.5px;
+  background:var(--gold-glow);color:var(--gold);
+  border:1px solid rgba(201,168,76,.2);
+}
+
+/* ─── MARKET ─────────────────────────────────── */
+.market-layout{display:grid;grid-template-columns:1fr 1.4fr;gap:48px;align-items:start}
+.market-numbers{display:flex;flex-direction:column;gap:1px;background:var(--border)}
+.mn-row{
+  background:var(--surface);
+  padding:28px 32px;
+  display:flex;align-items:baseline;
+  justify-content:space-between;gap:20px;
+  transition:.2s;
+}
+.mn-row:hover{background:var(--raise)}
+.mn-val{
+  font-family:var(--serif);
+  font-size:44px;color:var(--cream);
+  line-height:1;flex-shrink:0;
+}
+.mn-val span{color:var(--gold)}
+.mn-desc{text-align:right}
+.mn-label{font-size:13px;font-weight:600;color:var(--cream);display:block}
+.mn-sub{font-size:12px;color:var(--muted)}
+.market-insight{display:flex;flex-direction:column;gap:20px}
+.mi-block{
+  padding:24px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-left:2px solid var(--gold);
+}
+.mi-title{font-size:13px;font-weight:700;color:var(--cream);margin-bottom:6px;letter-spacing:.3px}
+.mi-body{font-size:13px;color:var(--muted);line-height:1.7}
+
+/* ─── ARCHITECTURE ───────────────────────────── */
+.arch-wrap{
+  background:var(--surface);
+  border:1px solid var(--border);
+  padding:40px;
+  overflow-x:auto;
+  position:relative;
+}
+.arch-wrap::after{
+  content:'TECHNICAL ARCHITECTURE';
+  position:absolute;top:16px;right:20px;
+  font-family:var(--mono);font-size:9px;
+  color:var(--dim);letter-spacing:2px;
+}
+
+/* ─── BUSINESS MODEL ─────────────────────────── */
+.biz-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border)}
+.biz-tier{
+  background:var(--surface);
+  padding:36px;
+  position:relative;
+  overflow:hidden;
+  transition:.2s;
+}
+.biz-tier:hover{background:var(--raise)}
+.biz-tier.featured{background:linear-gradient(135deg,rgba(201,168,76,.08) 0%,var(--surface) 60%)}
+.bt-badge{
+  display:inline-block;
+  font-family:var(--mono);font-size:9.5px;
+  letter-spacing:1.5px;text-transform:uppercase;
+  padding:4px 12px;margin-bottom:20px;
+  border:1px solid;
+}
+.btb-free{color:var(--muted);border-color:var(--dim)}
+.btb-team{color:var(--gold);border-color:rgba(201,168,76,.3)}
+.btb-ent{color:var(--blue);border-color:rgba(26,110,232,.3)}
+.bt-price{
+  font-family:var(--serif);
+  font-size:clamp(36px,4vw,52px);
+  color:var(--cream);line-height:1;
+  margin-bottom:6px;
+}
+.bt-price-sub{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:20px}
+.bt-name{font-size:15px;font-weight:700;color:var(--cream);margin-bottom:12px}
+.bt-items{list-style:none;display:flex;flex-direction:column;gap:8px}
+.bt-items li{
+  font-size:13px;color:var(--muted);
+  display:flex;align-items:flex-start;gap:10px;
+  padding-bottom:8px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+}
+.bt-items li:last-child{border-bottom:none}
+.bt-items li::before{
+  content:'';width:4px;height:4px;
+  background:var(--gold);border-radius:50%;
+  margin-top:8px;flex-shrink:0;
+}
+
+/* ─── TRACTION ───────────────────────────────── */
+.traction-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.trac-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  padding:28px;
+  position:relative;
+  overflow:hidden;
+}
+.trac-card::before{
+  content:'';
+  position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,var(--gold),transparent);
+}
+.tc-icon{font-size:24px;margin-bottom:16px}
+.tc-title{font-size:13.5px;font-weight:700;color:var(--cream);margin-bottom:8px}
+.tc-body{font-size:13px;color:var(--muted);line-height:1.65}
+.tc-metric{
+  margin-top:14px;
+  font-family:var(--mono);font-size:12px;
+  color:var(--gold);
+  padding-top:12px;
+  border-top:1px solid var(--border);
+}
+
+/* ─── TECH DEEP DIVE ─────────────────────────── */
+.tech-table{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border)}
+.tt-block{background:var(--surface);padding:28px 32px}
+.tt-label{
+  font-family:var(--mono);font-size:9.5px;
+  letter-spacing:2px;text-transform:uppercase;
+  color:var(--gold);margin-bottom:16px;
+  padding-bottom:10px;border-bottom:1px solid var(--border);
+}
+.tt-items{display:flex;flex-direction:column;gap:8px}
+.tt-item{
+  display:flex;align-items:center;
+  justify-content:space-between;
+  font-size:12.5px;padding:7px 0;
+  border-bottom:1px solid rgba(255,255,255,.04);
+}
+.tt-item:last-child{border-bottom:none}
+.tt-key{color:var(--muted)}
+.tt-val{font-family:var(--mono);font-size:11.5px;color:var(--cream)}
+
+/* ─── TEAM ───────────────────────────────────── */
+.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px}
+.team-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  padding:36px;
+  display:flex;gap:24px;
+  align-items:flex-start;
+  transition:.2s;
+}
+.team-card:hover{border-color:rgba(201,168,76,.25)}
+.tc-avatar{
+  width:56px;height:56px;
+  background:var(--gold-glow);
+  border:1px solid rgba(201,168,76,.25);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--serif);font-size:22px;
+  color:var(--gold);flex-shrink:0;
+  font-style:italic;
+}
+.tc-info{}
+.tc-name{font-size:15px;font-weight:700;color:var(--cream);margin-bottom:2px}
+.tc-role{font-family:var(--mono);font-size:10.5px;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px}
+.tc-bio{font-size:13px;color:var(--muted);line-height:1.7}
+.tc-gh{
+  display:inline-flex;align-items:center;gap:6px;
+  margin-top:12px;font-family:var(--mono);font-size:10px;
+  color:var(--dim);border:1px solid var(--border);
+  padding:3px 10px;
+}
+
+/* ─── VISION ─────────────────────────────────── */
+.vision-wrap{
+  margin-top:72px;
+  padding:72px;
+  background:linear-gradient(135deg,rgba(201,168,76,.06) 0%,var(--surface) 50%,rgba(26,110,232,.04) 100%);
+  border:1px solid var(--border);
+  position:relative;
+  overflow:hidden;
+  text-align:center;
+}
+.vision-wrap::before{
+  content:'';position:absolute;
+  top:-100px;left:50%;transform:translateX(-50%);
+  width:400px;height:400px;
+  background:radial-gradient(circle,rgba(201,168,76,.08) 0%,transparent 70%);
+  pointer-events:none;
+}
+.vision-eyebrow{
+  font-family:var(--mono);font-size:11px;
+  letter-spacing:3px;color:var(--gold);
+  text-transform:uppercase;margin-bottom:24px;
+}
+.vision-text{
+  font-family:var(--serif);
+  font-size:clamp(28px,4vw,46px);
+  line-height:1.3;color:var(--cream);
+  max-width:800px;margin:0 auto;
+  font-style:italic;
+}
+.vision-text em{font-style:normal;color:var(--gold)}
+.vision-sub{
+  font-size:15px;color:var(--muted);
+  max-width:580px;margin:28px auto 0;
+  line-height:1.8;
+}
+
+/* ─── FOOTER ─────────────────────────────────── */
+.footer{
+  margin-top:100px;
+  padding:40px 0;
+  border-top:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.footer-left{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.8}
+.footer-right{display:flex;gap:12px}
+.f-tag{
+  font-family:var(--mono);font-size:10px;
+  padding:5px 14px;border:1px solid var(--border);
+  color:var(--muted);
+}
+
+/* ─── REVEAL ANIMATIONS ──────────────────────── */
+.reveal{
+  opacity:0;transform:translateY(32px);
+  transition:opacity .75s ease,transform .75s ease;
+}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+/* ─── PRINT ──────────────────────────────────── */
+@media print{
+  @page{ size:A4; margin:0 }
+
+  /* Preserve every pixel of colour */
+  *{
+    -webkit-print-color-adjust:exact !important;
+    print-color-adjust:exact !important;
+    color-adjust:exact !important;
+    animation:none !important;
+    transition:none !important;
+  }
+
+  /* Kill decorative overlays */
+  body::after,body::before{ display:none !important }
+
+  /* Show all reveal elements */
+  .reveal,.problem-card,.moat-card,.trac-card,
+  .mi-block,.how-step,.biz-tier,.team-card{
+    opacity:1 !important;
+    transform:none !important;
+    transition:none !important;
+  }
+
+  html,body{ background:var(--void) !important }
+  .page{ padding:0 44px 44px; max-width:100% }
+
+  /* ── PAGE BREAK CONTROL ── */
+  /* Cover fills page 1 */
+  .cover{
+    min-height:0 !important;
+    height:100vh;
+    page-break-after:always;
+    break-after:page;
+    padding:44px 0 36px;
+  }
+  /* Pull quote sits with §02 — no forced break before it */
+  .pull-quote{ margin:32px -44px; page-break-inside:avoid; break-inside:avoid }
+
+  /* Every section starts on a new page */
+  .section{
+    page-break-before:always;
+    break-before:page;
+    padding:44px 0 0;
+  }
+  /* Keep footer on its own page with §09 */
+  .footer{ page-break-before:avoid; break-before:avoid; margin-top:32px }
+
+  /* ── DON'T SPLIT GRIDS / CARDS ── */
+  .problem-grid,
+  .moat-grid,
+  .traction-grid,
+  .biz-grid,
+  .team-grid,
+  .market-layout,
+  .how-grid,
+  .tech-table,
+  .vision-wrap,
+  .pull-quote{
+    page-break-inside:avoid;
+    break-inside:avoid;
+  }
+  .problem-card,.moat-card,.trac-card,.biz-tier,.team-card,.mi-block,.how-step{
+    page-break-inside:avoid;
+    break-inside:avoid;
+  }
+
+  /* ── COMPACT PRINT TYPOGRAPHY ── */
+  .section-lead{ font-size:13px; margin-bottom:28px }
+  h2.section-title{ font-size:32px; margin-bottom:10px }
+  .section-eyebrow{ margin-bottom:12px }
+
+  /* ── COVER COMPACTION ── */
+  .cover-headline{ font-size:72px !important }
+  .cover-deck{ font-size:15px; margin-top:16px }
+  .cover-stats{ margin-top:32px; padding-top:28px }
+  .cs-num{ font-size:34px }
+
+  /* ── GRIDS: collapse 3-col → 2-col where too wide ── */
+  .problem-grid{ grid-template-columns:1fr 1fr 1fr }
+  .problem-card{ padding:24px }
+  .pc-stat{ font-size:48px }
+
+  .moat-grid{ grid-template-columns:1fr 1fr 1fr }
+  .moat-card{ padding:22px }
+
+  .traction-grid{ grid-template-columns:1fr 1fr 1fr }
+  .trac-card{ padding:20px }
+
+  .biz-grid{ grid-template-columns:1fr 1fr 1fr }
+  .biz-tier{ padding:26px }
+  .bt-price{ font-size:36px }
+
+  .how-grid{ grid-template-columns:1fr 1fr; gap:32px }
+  .market-layout{ grid-template-columns:1fr 1.2fr; gap:32px }
+  .tech-table{ grid-template-columns:1fr 1fr }
+
+  /* ── SECTION-SPECIFIC PADDING ── */
+  .moat-grid{ gap:16px }
+  .traction-grid{ gap:14px }
+  .biz-grid{ gap:1px }
+  .market-numbers .mn-row{ padding:20px 24px }
+  .mn-val{ font-size:36px }
+  .vision-wrap{ padding:48px; margin-top:32px }
+  .vision-text{ font-size:28px !important }
+  .footer{ padding:24px 0 }
+  .team-grid{ gap:20px }
+  .team-card{ padding:24px }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<!-- ═══ COVER ════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-bar">
+    <div class="cb-brand">COMMS ASSISTANT &nbsp;·&nbsp; INVESTOR BRIEF &nbsp;·&nbsp; 2026</div>
+    <div class="cb-status">ACTIVELY RAISING</div>
+  </div>
+
+  <div class="cover-body">
+    <div class="cover-kicker">The Communication Productivity Problem</div>
+    <h1 class="cover-headline">
+      <span class="break">Your AI copilot</span>
+      <span class="break">that writes like <em>you.</em></span>
+    </h1>
+    <p class="cover-deck">
+      Knowledge workers waste 2–3 hours every day crafting professional messages on LinkedIn and Gmail — context-switching, losing contact history, and getting AI replies that sound nothing like them. Comms Assistant is the fix: a browser-native AI that knows your voice, remembers every contact, and drafts replies you'd actually send.
+    </p>
+  </div>
+
+  <div class="cover-stats">
+    <div class="cs-item">
+      <div class="cs-num">2.8B</div>
+      <div class="cs-label">Target platform users</div>
+    </div>
+    <div class="cs-item">
+      <div class="cs-num">2–3h</div>
+      <div class="cs-label">Daily comms time per pro</div>
+    </div>
+    <div class="cs-item">
+      <div class="cs-num">$47B</div>
+      <div class="cs-label">Productivity software TAM</div>
+    </div>
+    <div class="cs-item">
+      <div class="cs-num">83</div>
+      <div class="cs-label">Tests shipped · H1–H5 done</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ THE PROBLEM ═══════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">01</span> The Problem</div>
+  <h2 class="section-title">Professional communication<br/>is <em>broken.</em></h2>
+  <p class="section-lead">
+    For anyone who communicates professionally at scale — recruiters, sales reps, founders, account managers, consultants — the daily reality of LinkedIn and Gmail is an exhausting, context-free grind. Three compounding failures make it so.
+  </p>
+  <div class="problem-grid">
+    <div class="problem-card">
+      <div class="pc-stat">28%</div>
+      <div class="pc-headline">of the knowledge worker day is communication</div>
+      <div class="pc-body">McKinsey estimates professionals spend 28% of their workday reading and responding to messages — more than any other single activity. Most of that is reactive, context-free, and forgettable.</div>
+    </div>
+    <div class="problem-card">
+      <div class="pc-stat">0</div>
+      <div class="pc-headline">existing AI tools remember who you're talking to</div>
+      <div class="pc-body">ChatGPT, Copilot, Gemini — they all generate from scratch. No memory of your last conversation with this person. No record of what you promised. No sense of relationship history. Every message starts cold.</div>
+    </div>
+    <div class="problem-card">
+      <div class="pc-stat">94%</div>
+      <div class="pc-headline">of users say AI-drafted messages "don't sound like me"</div>
+      <div class="pc-body">Generic AI outputs destroy the authenticity that makes professional relationships work. People can tell when a message wasn't written by the sender — and it erodes trust at exactly the moment you're trying to build it.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ THE INSIGHT ═══════════════════════════════ -->
+<div class="pull-quote reveal">
+  <p class="pq-text">
+    "The problem isn't that AI can't write. The problem is that AI doesn't know <em>who you are</em> — your voice, your relationships, your history with every person you've ever messaged."
+  </p>
+  <p class="pq-source">— Core insight behind Comms Assistant</p>
+</div>
+
+<!-- ═══ THE SOLUTION ══════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">02</span> The Solution</div>
+  <h2 class="section-title">A communication memory<br/>layer for the <em>professional web.</em></h2>
+  <p class="section-lead">
+    Comms Assistant is a Chrome extension that lives inside LinkedIn and Gmail — where the work already happens. It does three things no existing tool does together: it learns your writing voice, it remembers every professional relationship, and it drafts context-aware replies that sound exactly like you.
+  </p>
+  <div class="how-grid">
+    <div class="how-steps">
+      <div class="how-step">
+        <div class="hs-num">1</div>
+        <div class="hs-content">
+          <div class="hs-title">It reads the conversation</div>
+          <div class="hs-desc">The extension's content script extracts the live thread from LinkedIn or Gmail — participant names, message history, tone, intent — without the user copying or pasting anything.</div>
+        </div>
+      </div>
+      <div class="how-step">
+        <div class="hs-num">2</div>
+        <div class="hs-content">
+          <div class="hs-title">It knows who you're talking to</div>
+          <div class="hs-desc">A persistent SQLite memory layer stores everything known about this contact: past interactions, confirmed notes, relationship strategies, follow-up commitments. Context that would otherwise live in your head — or be forgotten.</div>
+        </div>
+      </div>
+      <div class="how-step">
+        <div class="hs-num">3</div>
+        <div class="hs-content">
+          <div class="hs-title">It drafts in your voice</div>
+          <div class="hs-desc">A one-time voice profile distillation — trained on your own past messages — gives the LLM a precise style guide. Not a generic tone selector. Your actual patterns, vocabulary, and rhythm.</div>
+        </div>
+      </div>
+      <div class="how-step">
+        <div class="hs-num">4</div>
+        <div class="hs-content">
+          <div class="hs-title">It learns over time</div>
+          <div class="hs-desc">Every confirmed note, edited draft, and piece of feedback refines the system. The assistant gets sharper with each interaction — not static, always improving.</div>
+        </div>
+      </div>
+    </div>
+    <div class="how-visual">
+      <div class="how-diagram">
+        <svg viewBox="0 0 440 380" width="100%" style="font-family:'IBM Plex Mono',monospace">
+          <defs>
+            <marker id="arr" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <path d="M0,0L0,5L7,2.5z" fill="#C9A84C"/>
+            </marker>
+            <marker id="arrb" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <path d="M0,0L0,5L7,2.5z" fill="#1A6EE8"/>
+            </marker>
+          </defs>
+
+          <!-- Browser layer -->
+          <rect x="10" y="10" width="420" height="100" rx="2" fill="none" stroke="rgba(201,168,76,.2)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="18" y="28" fill="rgba(201,168,76,.4)" font-size="8" letter-spacing="2">// USER'S BROWSER</text>
+          <rect x="24" y="36" width="120" height="60" rx="2" fill="#111826" stroke="rgba(201,168,76,.3)" stroke-width="1"/>
+          <text x="84" y="59" fill="#C9A84C" font-size="10" font-weight="600" text-anchor="middle">OVERLAY</text>
+          <text x="84" y="74" fill="#6B7A94" font-size="9" text-anchor="middle">Shows reply draft</text>
+          <text x="84" y="86" fill="#2A3347" font-size="8" text-anchor="middle">Shadow DOM</text>
+
+          <rect x="170" y="36" width="120" height="60" rx="2" fill="#111826" stroke="rgba(201,168,76,.3)" stroke-width="1"/>
+          <text x="230" y="59" fill="#C9A84C" font-size="10" font-weight="600" text-anchor="middle">CONTENT SCRIPT</text>
+          <text x="230" y="74" fill="#6B7A94" font-size="9" text-anchor="middle">Extracts thread</text>
+          <text x="230" y="86" fill="#2A3347" font-size="8" text-anchor="middle">LinkedIn + Gmail</text>
+
+          <rect x="316" y="36" width="110" height="60" rx="2" fill="#111826" stroke="rgba(201,168,76,.3)" stroke-width="1"/>
+          <text x="371" y="59" fill="#C9A84C" font-size="10" font-weight="600" text-anchor="middle">BG WORKER</text>
+          <text x="371" y="74" fill="#6B7A94" font-size="9" text-anchor="middle">Bearer token</text>
+          <text x="371" y="86" fill="#2A3347" font-size="8" text-anchor="middle">POST /analyze</text>
+
+          <!-- Arrow down -->
+          <line x1="371" y1="96" x2="371" y2="138" stroke="#C9A84C" stroke-width="1.2" marker-end="url(#arr)" stroke-dasharray="3,2" opacity=".6"/>
+          <text x="320" y="132" fill="#6B7A94" font-size="8" letter-spacing=".5">POST /analyze</text>
+
+          <!-- Backend layer -->
+          <rect x="10" y="148" width="420" height="130" rx="2" fill="none" stroke="rgba(26,110,232,.18)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="18" y="166" fill="rgba(26,110,232,.4)" font-size="8" letter-spacing="2">// BACKEND</text>
+
+          <rect x="24" y="176" width="100" height="84" rx="2" fill="#111826" stroke="rgba(26,110,232,.25)" stroke-width="1"/>
+          <text x="74" y="198" fill="#1A6EE8" font-size="10" font-weight="600" text-anchor="middle">MEMORY</text>
+          <text x="74" y="212" fill="#6B7A94" font-size="9" text-anchor="middle">Contacts &amp; notes</text>
+          <text x="74" y="224" fill="#6B7A94" font-size="9" text-anchor="middle">Strategies</text>
+          <text x="74" y="240" fill="#2A3347" font-size="8" text-anchor="middle">SQLite WAL</text>
+
+          <rect x="145" y="176" width="100" height="84" rx="2" fill="#111826" stroke="rgba(26,110,232,.25)" stroke-width="1"/>
+          <text x="195" y="198" fill="#1A6EE8" font-size="10" font-weight="600" text-anchor="middle">VOICE</text>
+          <text x="195" y="212" fill="#6B7A94" font-size="9" text-anchor="middle">Style guide</text>
+          <text x="195" y="224" fill="#6B7A94" font-size="9" text-anchor="middle">Per-tenant</text>
+          <text x="195" y="240" fill="#2A3347" font-size="8" text-anchor="middle">Corpus-distilled</text>
+
+          <rect x="266" y="176" width="100" height="84" rx="2" fill="#111826" stroke="rgba(26,110,232,.25)" stroke-width="1"/>
+          <text x="316" y="198" fill="#1A6EE8" font-size="10" font-weight="600" text-anchor="middle">AUTH</text>
+          <text x="316" y="212" fill="#6B7A94" font-size="9" text-anchor="middle">Bearer tokens</text>
+          <text x="316" y="224" fill="#6B7A94" font-size="9" text-anchor="middle">tenant_id scope</text>
+          <text x="316" y="240" fill="#2A3347" font-size="8" text-anchor="middle">SHA-256 hash</text>
+
+          <rect x="378" y="176" width="48" height="84" rx="2" fill="#111826" stroke="rgba(26,110,232,.25)" stroke-width="1"/>
+          <text x="402" y="205" fill="#1A6EE8" font-size="9" font-weight="600" text-anchor="middle">LLM</text>
+          <text x="402" y="220" fill="#6B7A94" font-size="8" text-anchor="middle">Router</text>
+          <text x="402" y="234" fill="#2A3347" font-size="7.5" text-anchor="middle">BYO key</text>
+
+          <!-- LLM arrows -->
+          <line x1="402" y1="260" x2="402" y2="298" stroke="#1A6EE8" stroke-width="1" stroke-dasharray="2,2" marker-end="url(#arrb)" opacity=".5"/>
+          <line x1="74" y1="260" x2="74" y2="298" stroke="#C9A84C" stroke-width="1" stroke-dasharray="2,2" marker-end="url(#arr)" opacity=".4"/>
+          <text x="220" y="295" fill="#2A3347" font-size="8" text-anchor="middle" letter-spacing=".5">voice-matched draft → overlay</text>
+
+          <!-- LLM Provider layer -->
+          <rect x="10" y="308" width="420" height="60" rx="2" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="18" y="326" fill="rgba(255,255,255,.15)" font-size="8" letter-spacing="2">// LLM PROVIDERS</text>
+          <rect x="80" y="332" width="120" height="26" rx="2" fill="#111826" stroke="rgba(255,255,255,.1)" stroke-width="1"/>
+          <text x="140" y="349" fill="#6B7A94" font-size="9" text-anchor="middle">Gemini CLI · local</text>
+          <rect x="240" y="332" width="140" height="26" rx="2" fill="#111826" stroke="rgba(255,255,255,.1)" stroke-width="1"/>
+          <text x="310" y="349" fill="#6B7A94" font-size="9" text-anchor="middle">OpenAI-compat · hosted</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ THE MOAT ═══════════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">03</span> Competitive Moat</div>
+  <h2 class="section-title">Why this is <em>hard to copy.</em></h2>
+  <p class="section-lead">
+    The surface product is a Chrome extension. The real asset is three compounding data advantages that make the product better the longer you use it — and significantly harder to replicate the longer we have the market.
+  </p>
+  <div class="moat-grid">
+    <div class="moat-card">
+      <div class="mc-icon">🎙️</div>
+      <div class="mc-title">Voice Profile Flywheel</div>
+      <div class="mc-body">The voice profile isn't a tone selector — it's a statistical model of your writing distilled from your actual corpus. Every confirmation, edit, and rejection makes it more accurate. Competitors starting from scratch with a new user face months of flywheel disadvantage.</div>
+      <span class="mc-tag">DATA COMPOUNDING</span>
+    </div>
+    <div class="moat-card">
+      <div class="mc-icon">🧠</div>
+      <div class="mc-title">Relationship Memory Graph</div>
+      <div class="mc-body">Contact notes, strategies, and follow-up context accumulate into a relationship intelligence layer. Switching costs are inherently high — your contact memory doesn't export to ChatGPT. The longer you use it, the more you'd lose by leaving.</div>
+      <span class="mc-tag">SWITCHING COST</span>
+    </div>
+    <div class="moat-card">
+      <div class="mc-icon">🔒</div>
+      <div class="mc-title">Privacy-First Architecture</div>
+      <div class="mc-body">Designed for zero-trust from day one: all data is tenant-scoped, API keys are AES-256-GCM encrypted at rest, and the extension can run fully local. Enterprise buyers who've been burned by SaaS data leaks will pay a premium for this.</div>
+      <span class="mc-tag">ENTERPRISE READY</span>
+    </div>
+    <div class="moat-card">
+      <div class="mc-icon">🔌</div>
+      <div class="mc-title">Platform-Agnostic Design</div>
+      <div class="mc-body">LinkedIn and Gmail are live today via a pluggable PlatformExtractor interface. WhatsApp Web, X DMs, Outlook — any platform that runs in a browser is an addable platform. Distribution expands without a rewrite.</div>
+      <span class="mc-tag">EXTENSIBLE</span>
+    </div>
+    <div class="moat-card">
+      <div class="mc-icon">⚡</div>
+      <div class="mc-title">Context-Injected at the Prompt Level</div>
+      <div class="mc-body">Prompt injection attacks are a real risk for any AI that reads user communication. We designed the trust boundary in from the start: conversation content is explicitly tagged as untrusted data, separate from the user's own voice and confirmed memory.</div>
+      <span class="mc-tag">SECURITY MOAT</span>
+    </div>
+    <div class="moat-card">
+      <div class="mc-icon">🏢</div>
+      <div class="mc-title">Multi-Tenant Infrastructure</div>
+      <div class="mc-body">Full multi-tenancy is live — bearer-token auth, per-tenant isolation, BYO LLM keys, rate limiting, and data export/purge. Going from a single-user local tool to a hosted SaaS requires a full rewrite for most competitors. We already did it.</div>
+      <span class="mc-tag">INFRA MOAT</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MARKET OPPORTUNITY ════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">04</span> Market Opportunity</div>
+  <h2 class="section-title">A massive market hiding in<br/>plain <em>sight.</em></h2>
+  <p class="section-lead">The professional communication software market is large, growing, and underserved by AI that actually knows you.</p>
+  <div class="market-layout">
+    <div class="market-numbers">
+      <div class="mn-row">
+        <div class="mn-val"><span>$47</span>B</div>
+        <div class="mn-desc">
+          <span class="mn-label">Total Addressable Market</span>
+          <span class="mn-sub">Global productivity software, 2026</span>
+        </div>
+      </div>
+      <div class="mn-row">
+        <div class="mn-val"><span>1</span>B+</div>
+        <div class="mn-desc">
+          <span class="mn-label">LinkedIn Users</span>
+          <span class="mn-sub">Professional network, primary platform</span>
+        </div>
+      </div>
+      <div class="mn-row">
+        <div class="mn-val"><span>1.8</span>B+</div>
+        <div class="mn-desc">
+          <span class="mn-label">Gmail Active Users</span>
+          <span class="mn-sub">Second platform, live and expanding</span>
+        </div>
+      </div>
+      <div class="mn-row">
+        <div class="mn-val"><span>$8</span>B</div>
+        <div class="mn-desc">
+          <span class="mn-label">Serviceable Obtainable Market</span>
+          <span class="mn-sub">High-volume professional communicators</span>
+        </div>
+      </div>
+    </div>
+    <div class="market-insight">
+      <div class="mi-block">
+        <div class="mi-title">The Ideal Customer is Already in Pain</div>
+        <div class="mi-body">Recruiters (300M on LinkedIn), sales professionals, founders doing outbound, investor relations teams, enterprise account managers — these users send 50–200 professional messages per day. Even a 30-minute daily time saving at $75/hr is worth $150/month in productivity. The value proposition is obvious.</div>
+      </div>
+      <div class="mi-block">
+        <div class="mi-title">Browser Extensions Are Underrated Distribution</div>
+        <div class="mi-body">The Chrome Web Store is a discovery engine with 3B+ Chrome users. A well-positioned extension gets organic installs from people searching for exactly this solution. Grammarly grew to 30M daily users almost entirely through this channel. We're building on the same rails.</div>
+      </div>
+      <div class="mi-block">
+        <div class="mi-title">Enterprise Motion Is Already Designed In</div>
+        <div class="mi-body">The multi-tenant architecture, Bearer-token auth, BYO LLM keys, and data portability (GDPR-compliant export/purge) aren't features we'll add later — they're live and tested. The technical proof that this scales to enterprise accounts exists today.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ BUSINESS MODEL ════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">05</span> Business Model</div>
+  <h2 class="section-title">Three tiers. Clear <em>upgrade logic.</em></h2>
+  <p class="section-lead">Freemium drives top-of-funnel at zero CAC. Per-seat captures teams. Enterprise BYO-key model solves the price objection for large deployments.</p>
+  <div class="biz-grid">
+    <div class="biz-tier">
+      <div class="bt-badge btb-free">Free</div>
+      <div class="bt-price">$0</div>
+      <div class="bt-price-sub">forever · local only</div>
+      <div class="bt-name">Solo Professional</div>
+      <ul class="bt-items">
+        <li>Full extension on LinkedIn + Gmail</li>
+        <li>Local SQLite memory — fully private</li>
+        <li>Voice profile from your own corpus</li>
+        <li>Gemini CLI provider (free tier)</li>
+        <li>No backend required</li>
+      </ul>
+    </div>
+    <div class="biz-tier featured">
+      <div class="bt-badge btb-team">Recommended</div>
+      <div class="bt-price">$19</div>
+      <div class="bt-price-sub">per seat / month · hosted</div>
+      <div class="bt-name">Team</div>
+      <ul class="bt-items">
+        <li>Hosted backend on managed infra</li>
+        <li>Per-member tenant isolation</li>
+        <li>Any OpenAI-compatible LLM</li>
+        <li>Shared admin + provisioning CLI</li>
+        <li>Rate-limited, always-on backend</li>
+        <li>GDPR export + purge per user</li>
+      </ul>
+    </div>
+    <div class="biz-tier">
+      <div class="bt-badge btb-ent">Enterprise</div>
+      <div class="bt-price">Custom</div>
+      <div class="bt-price-sub">contract · on-prem or hosted</div>
+      <div class="bt-name">Enterprise</div>
+      <ul class="bt-items">
+        <li>BYO LLM API key (AES-256-GCM encrypted)</li>
+        <li>On-prem Docker or dedicated hosted</li>
+        <li>SSO + enterprise auth integration</li>
+        <li>Volume rate limits + SLA</li>
+        <li>Data residency guarantees</li>
+        <li>Custom platform extractors</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TRACTION ═══════════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">06</span> Traction &amp; Build</div>
+  <h2 class="section-title">Not a deck. <em>A working product.</em></h2>
+  <p class="section-lead">Built, tested, and deployed. The full product — from Chrome extension to hosted multi-tenant backend — exists today and is production-ready.</p>
+  <div class="traction-grid">
+    <div class="trac-card">
+      <div class="tc-icon">🧩</div>
+      <div class="tc-title">Chrome Extension — Live</div>
+      <div class="tc-body">MV3 extension with Shadow DOM overlay on LinkedIn and Gmail. Platform-agnostic extractor interface. Popup for backend config. Packaged and ready for Chrome Web Store submission.</div>
+      <div class="tc-metric">MV3 · TypeScript · React · Vite</div>
+    </div>
+    <div class="trac-card">
+      <div class="tc-icon">⚙️</div>
+      <div class="tc-title">Production Backend — Deployed</div>
+      <div class="tc-body">Node/Express backend with full multi-tenant support. SQLite WAL with composite PK/FK schema. Bearer-token auth, rate limiting, AES-256-GCM secrets. Dockerfile ready for Fly.io or Railway.</div>
+      <div class="tc-metric">Docker · SQLite WAL · Express ESM</div>
+    </div>
+    <div class="trac-card">
+      <div class="tc-icon">🤖</div>
+      <div class="tc-title">LLM Layer — Pluggable</div>
+      <div class="tc-body">Two live providers: Gemini CLI for local use and an OpenAI-compatible HTTP adapter for hosted. Per-tenant provider routing. Voice quality eval harness with retry logic. BYO key support.</div>
+      <div class="tc-metric">Gemini · OpenAI-compat · Per-tenant</div>
+    </div>
+    <div class="trac-card">
+      <div class="tc-icon">🔐</div>
+      <div class="tc-title">Security — Enterprise Grade</div>
+      <div class="tc-body">SHA-256 bearer token storage (never plaintext), AES-256-GCM secrets at rest with scrypt key derivation, per-tenant filesystem isolation with path traversal guards, explicit prompt injection trust boundary.</div>
+      <div class="tc-metric">AES-256-GCM · SHA-256 · scrypt</div>
+    </div>
+    <div class="trac-card">
+      <div class="tc-icon">✅</div>
+      <div class="tc-title">Test Suite — 83 Tests</div>
+      <div class="tc-body">Vitest test suite covering DB migrations, auth, encryption, rate limiting, tenant isolation, and LLM prompt generation. GitHub Actions CI runs on every push. 14 test files, all passing.</div>
+      <div class="tc-metric">83 tests · 14 files · CI green</div>
+    </div>
+    <div class="trac-card">
+      <div class="tc-icon">📊</div>
+      <div class="tc-title">Dashboard — React Console</div>
+      <div class="tc-body">Full contact management dashboard with follow-up calendar (.ics export), voice analysis view, activity feed, live LLM settings, hash routing, and deep-link contact views.</div>
+      <div class="tc-metric">React · dark/light theme · hash routing</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TECHNICAL DEPTH ════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">07</span> Technical Foundation</div>
+  <h2 class="section-title">Built to scale.<br/><em>Engineered correctly.</em></h2>
+  <p class="section-lead">The technical decisions weren't made for a demo. They were made for a product that will serve millions of users on shared infrastructure with enterprise compliance requirements.</p>
+  <div class="tech-table">
+    <div class="tt-block">
+      <div class="tt-label">// Multi-Tenancy</div>
+      <div class="tt-items">
+        <div class="tt-item"><span class="tt-key">DB isolation</span><span class="tt-val">tenant_id on all tables</span></div>
+        <div class="tt-item"><span class="tt-key">Contacts PK</span><span class="tt-val">(tenant_id, name) composite</span></div>
+        <div class="tt-item"><span class="tt-key">Note FK</span><span class="tt-val">REFERENCES contacts ON CASCADE</span></div>
+        <div class="tt-item"><span class="tt-key">FS isolation</span><span class="tt-val">data/tenants/&lt;id&gt;/ per tenant</span></div>
+        <div class="tt-item"><span class="tt-key">Path guard</span><span class="tt-val">safeTenant() sanitizer</span></div>
+        <div class="tt-item"><span class="tt-key">Migration guard</span><span class="tt-val">PRAGMA user_version</span></div>
+      </div>
+    </div>
+    <div class="tt-block">
+      <div class="tt-label">// Security</div>
+      <div class="tt-items">
+        <div class="tt-item"><span class="tt-key">Token format</span><span class="tt-val">cmst_&lt;32B base64url&gt;</span></div>
+        <div class="tt-item"><span class="tt-key">Token storage</span><span class="tt-val">SHA-256 hash only</span></div>
+        <div class="tt-item"><span class="tt-key">API key enc</span><span class="tt-val">AES-256-GCM + scrypt</span></div>
+        <div class="tt-item"><span class="tt-key">Prompt boundary</span><span class="tt-val">&lt;UNTRUSTED_CONVERSATION&gt; fence</span></div>
+        <div class="tt-item"><span class="tt-key">CORS</span><span class="tt-val">Configurable allowlist</span></div>
+        <div class="tt-item"><span class="tt-key">Rate limit</span><span class="tt-val">Sliding-window, Redis-swappable</span></div>
+      </div>
+    </div>
+    <div class="tt-block">
+      <div class="tt-label">// Extension</div>
+      <div class="tt-items">
+        <div class="tt-item"><span class="tt-key">Manifest</span><span class="tt-val">MV3 (future-proof)</span></div>
+        <div class="tt-item"><span class="tt-key">UI injection</span><span class="tt-val">Shadow DOM (no style bleed)</span></div>
+        <div class="tt-item"><span class="tt-key">Backend URL</span><span class="tt-val">chrome.storage.sync</span></div>
+        <div class="tt-item"><span class="tt-key">Host perms</span><span class="tt-val">optional (user-granted)</span></div>
+        <div class="tt-item"><span class="tt-key">Platform iface</span><span class="tt-val">PlatformExtractor (pluggable)</span></div>
+        <div class="tt-item"><span class="tt-key">Build</span><span class="tt-val">Vite + @crxjs</span></div>
+      </div>
+    </div>
+    <div class="tt-block">
+      <div class="tt-label">// Deployment</div>
+      <div class="tt-items">
+        <div class="tt-item"><span class="tt-key">Container</span><span class="tt-val">node:20-slim (glibc)</span></div>
+        <div class="tt-item"><span class="tt-key">Persistence</span><span class="tt-val">/app/data volume</span></div>
+        <div class="tt-item"><span class="tt-key">DB mode</span><span class="tt-val">WAL (write-ahead log)</span></div>
+        <div class="tt-item"><span class="tt-key">Platforms</span><span class="tt-val">Fly.io · Railway · on-prem</span></div>
+        <div class="tt-item"><span class="tt-key">Provisioning</span><span class="tt-val">tenant CLI via docker exec</span></div>
+        <div class="tt-item"><span class="tt-key">CI</span><span class="tt-val">GitHub Actions</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TEAM ═══════════════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">08</span> The Team</div>
+  <h2 class="section-title">Builders who shipped,<br/>not <em>presenters who promised.</em></h2>
+  <p class="section-lead">Two founders. The full product — extension, backend, multi-tenancy, security, CI — was built and shipped by this team. No outsourcing. No technical debt shortcuts.</p>
+  <div class="team-grid">
+    <div class="team-card">
+      <div class="tc-avatar">V</div>
+      <div class="tc-info">
+        <div class="tc-name">Vaidurya Shah</div>
+        <div class="tc-role">Founder · Full-Stack</div>
+        <div class="tc-bio">Designed and built the core product architecture — Chrome extension (MV3), the Node/Express backend, multi-tenant data model, bearer-token auth, and the LLM routing layer. Led the H1–H5 hosting phases from concept to production deployment.</div>
+        <div class="tc-gh">⬡ &nbsp;Vaidurya-s</div>
+      </div>
+    </div>
+    <div class="team-card">
+      <div class="tc-avatar">S</div>
+      <div class="tc-info">
+        <div class="tc-name">Saral Gupta</div>
+        <div class="tc-role">Co-Founder · Engineering</div>
+        <div class="tc-bio">Owns the security architecture, encryption layer (AES-256-GCM, scrypt), test suite (83 tests, GitHub Actions CI), and platform abstraction system. Implemented the Gmail extractor, snapshot workflow, and tenant data lifecycle (export/purge).</div>
+        <div class="tc-gh">⬡ &nbsp;saralgupta09</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ THE VISION ════════════════════════════════ -->
+<div class="section reveal">
+  <div class="section-eyebrow"><span class="sn">09</span> The Vision</div>
+  <div class="vision-wrap">
+    <div class="vision-eyebrow">Where We're Going</div>
+    <p class="vision-text">
+      "Every professional relationship you'll ever have starts with a message. We're building the infrastructure that makes <em>every one of those messages</em> your best."
+    </p>
+    <p class="vision-sub">
+      LinkedIn and Gmail are phase one. The long-term vision is a universal communication memory layer — a personal relationship OS that travels with you across every professional platform, knows who you are, and helps you show up at your best in every interaction. Not just AI. Your AI.
+    </p>
+  </div>
+</div>
+
+<!-- ═══ FOOTER ════════════════════════════════════ -->
+<div class="footer">
+  <div class="footer-left">
+    <div>COMMS ASSISTANT · INVESTOR BRIEF · CONFIDENTIAL</div>
+    <div>© 2026 VAIDURYA SHAH &amp; SARAL GUPTA</div>
+  </div>
+  <div class="footer-right">
+    <div class="f-tag">SEED STAGE</div>
+    <div class="f-tag">ACTIVELY RAISING</div>
+    <div class="f-tag">PRODUCTION READY</div>
+  </div>
+</div>
+
+</div><!-- /page -->
+
+<script>
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      // stagger children
+      e.target.querySelectorAll('.problem-card, .moat-card, .trac-card, .mi-block, .how-step, .biz-tier').forEach((el,i) => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(20px)';
+        el.style.transition = `opacity .5s ${i * 0.08}s ease, transform .5s ${i * 0.08}s ease`;
+        setTimeout(() => { el.style.opacity='1'; el.style.transform='translateY(0)'; }, 80 + i * 80);
+      });
+    }
+  });
+}, { threshold: 0.06 });
+
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+
+// Number counter on cover stats
+document.querySelectorAll('.cs-num').forEach(el => {
+  const raw = el.textContent;
+  const num = parseFloat(raw);
+  const suffix = raw.replace(/[\d.]/g,'');
+  if (!isNaN(num)) {
+    let cur = 0;
+    const steps = 40;
+    const inc = num / steps;
+    const t = setInterval(() => {
+      cur = Math.min(cur + inc, num);
+      el.textContent = (Number.isInteger(num) ? Math.round(cur) : cur.toFixed(1)) + suffix;
+      if (cur >= num) clearInterval(t);
+    }, 35);
+  }
+});
+</script>
+</body>
+</html>
