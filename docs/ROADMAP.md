@@ -150,6 +150,30 @@ sequencing.
 
 ---
 
+## Status (updated 2026-08-29)
+
+Most of this document is now history. **Tracks A, B and D are done** — Vitest
+covers both workspaces, GitHub Actions CI runs on every push, selector
+resilience and the snapshot/anomaly path are in, the `PlatformExtractor`
+abstraction and the Gmail extractor shipped, and hosting phases H1–H5 all
+landed (see [ROADMAP-HOSTING.md](ROADMAP-HOSTING.md)).
+
+**Track C is complete too:** C1 (voice-eval harness), C2 (few-shot grounding for
+every provider), C3 (reply variations), C4 (cross-conversation memory).
+
+What actually remains:
+
+- **A5 — Chrome Web Store submission.** Store-listing copy, promo assets, and
+  the manual, billed submission step the maintainer does.
+- **C5 — opt-in Google Calendar connect.** Still deliberately unbuilt: it
+  crosses the "copy-never-send" line, so it must be explicit, off by default,
+  and it shares the secret store with H3 (which has landed).
+
+The "Next 5 PRs" list below is kept for the record — 1, 2, 3 and 5 are done, and
+4 shipped as Track B.
+
+---
+
 ## Next 5 PRs (small, independent, high-leverage)
 
 1. **Vitest + first unit tests** — `prompt.buildPrompt`, `insight` parser, `envFile.writeEnv`,
