@@ -66,11 +66,14 @@ export interface BuildPromptInput {
    * a toolless provider (anthropic, openai-compat) can see the corpus at all —
    * gemini-cli greps it directly from its sandbox.
    *
-   * NOTE on trust: these come from `voice_profile/linkedin_successful_messages.md`,
-   * a file the user hand-curates on their own machine — the same trust tier as
-   * the voice profile itself. So they're injected OUTSIDE the untrusted
-   * boundary. That holds ONLY while the corpus stays hand-curated. If we ever
-   * auto-ingest live threads into it, the contact's half of every exchange
+   * NOTE on trust: these come from the user's own corpus under `voice_profile/`
+   * — the same trust tier as the voice profile itself — so they're injected
+   * OUTSIDE the untrusted boundary. Entries get there one of two ways, and BOTH
+   * keep a human in the loop: the user hand-writes the file, or they add an
+   * exchange from the overlay after reviewing and editing the text in a box
+   * (corpus.ts `appendExchange`, the same gate shape as the memory card's Save).
+   * That review is what this trust rests on. If a code path is ever added that
+   * auto-ingests live threads without it, the contact's half of every exchange
    * becomes attacker-controlled and this section must move INSIDE the
    * UNTRUSTED_CONVERSATION block.
    */

@@ -170,6 +170,12 @@ export function Overlay({ onClose, coldOpen }: Props) {
   // no alternative on screen; "" = one is streaming in.
   const [variant, setVariant] = useState<string | null>(null);
   const [variantLoading, setVariantLoading] = useState(false);
+  // "Add to my corpus": a reviewed exchange on its way to voice_profile/. null =
+  // the panel is closed. The review step is the trust gate — see corpus.ts.
+  const [corpusDraft, setCorpusDraft] = useState<
+    { contact: string; mine: string; theirs: string; tag: string } | null
+  >(null);
+  const [corpusStatus, setCorpusStatus] = useState<string>("");
 
   const [memoryProposal, setMemoryProposal] = useState<{ contact_name: string; note: string } | null>(null);
   const [memorySaved, setMemorySaved] = useState(false);
@@ -551,6 +557,58 @@ export function Overlay({ onClose, coldOpen }: Props) {
       }).catch(() => {});
     }
   }, [preview, coldOpen, threadInfo]);
+
+  /**
+   * Open the "add to my corpus" panel, prefilled from the live thread.
+   *
+   * Prefills the last thing I sent and the reply that followed it — the corpus
+   * is a record of exchanges that WORKED, so an unanswered message isn't one.
+   * The user edits both boxes before anything is written; that review is what
+   * lets prompt.ts keep these examples outside the untrusted boundary.
+   */
+  const openCorpusPanel = useCallback(async () => {
+    setCorpusStatus("");
+    const resp = await sendBackground({ type: "STATUS_REQUEST" });
+    const ctx = resp?.type === "STATUS_RESPONSE" ? resp.lastContext : null;
+    const messages = ctx?.messages ?? [];
+    const lastMineIdx = messages.map((m) => m.isSelf).lastIndexOf(true);
+    const reply = lastMineIdx >= 0 ? messages.slice(lastMineIdx + 1).find((m) => !m.isSelf) : undefined;
+    if (lastMineIdx < 0 || !reply) {
+      setCorpusStatus("No reply to one of your messages in this thread yet.");
+      return;
+    }
+    setCorpusDraft({
+      contact: ctx?.conversation_title ?? threadInfo?.title ?? "",
+      mine: messages[lastMineIdx].text,
+      theirs: reply.text,
+      tag: "",
+    });
+  }, [threadInfo]);
+
+  const saveToCorpus = useCallback(async () => {
+    if (!corpusDraft) return;
+    setCorpusStatus("Saving…");
+    try {
+      const res = await backendFetch(`/corpus/exchanges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact: corpusDraft.contact,
+          turns: [
+            { isSelf: true, text: corpusDraft.mine },
+            { isSelf: false, text: corpusDraft.theirs },
+          ],
+          tag: corpusDraft.tag || undefined,
+          platform: window.location.hostname.includes("mail.google.com") ? "gmail" : "linkedin",
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `backend ${res.status}`);
+      setCorpusDraft(null);
+      setCorpusStatus("Added to your corpus ✓");
+    } catch (err) {
+      setCorpusStatus((err as Error).message);
+    }
+  }, [corpusDraft]);
 
   const feedbackContact = coldOpen?.contactName || threadInfo?.title;
 
@@ -1093,6 +1151,61 @@ export function Overlay({ onClose, coldOpen }: Props) {
                   </button>
                 </>
               )}
+            </div>
+          )}
+
+          {!coldOpen && (
+            <div className="ca-row">
+              <button
+                onClick={() => void openCorpusPanel()}
+                disabled={!threadInfo}
+                className="ca-btn ca-btn-ghost"
+                title="Save this exchange as an example of how you write"
+              >
+                ＋ Add to my corpus
+              </button>
+              {corpusStatus && <span className="ca-muted">{corpusStatus}</span>}
+            </div>
+          )}
+
+          {corpusDraft && (
+            <div className="ca-variant">
+              <div className="ca-variant-head">
+                Add to my corpus — check this before it's saved
+              </div>
+              <span className="ca-muted">What I sent</span>
+              <textarea
+                value={corpusDraft.mine}
+                onChange={(e) => setCorpusDraft({ ...corpusDraft, mine: e.target.value })}
+                className="ca-preview"
+                rows={4}
+              />
+              <span className="ca-muted">What {corpusDraft.contact || "they"} replied</span>
+              <textarea
+                value={corpusDraft.theirs}
+                onChange={(e) => setCorpusDraft({ ...corpusDraft, theirs: e.target.value })}
+                className="ca-preview"
+                rows={3}
+              />
+              <input
+                type="text"
+                value={corpusDraft.tag}
+                onChange={(e) => setCorpusDraft({ ...corpusDraft, tag: e.target.value })}
+                placeholder="optional tag, e.g. crypto template — groups the reply-rate stats"
+                className="ca-input"
+              />
+              <div className="ca-row">
+                <button
+                  onClick={() => void saveToCorpus()}
+                  disabled={!corpusDraft.mine.trim()}
+                  className="ca-btn ca-btn-primary"
+                >
+                  Add
+                </button>
+                <button onClick={() => setCorpusDraft(null)} className="ca-btn ca-btn-ghost">
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 

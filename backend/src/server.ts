@@ -66,7 +66,7 @@ import { lintProfileText } from "./voiceLint.js";
 import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
 import { selectAboutMeContext, selectRelevantContext } from "./contextRetrieval.js";
 import { findRecurringTopics, findRelationshipStages } from "./memoryPatterns.js";
-import { loadCorpusExchanges } from "./corpus.js";
+import { appendExchange, loadCorpusExchanges, type ExchangeTurn } from "./corpus.js";
 
 // How many real past exchanges to show the model per draft. Two is enough to
 // convey rhythm without crowding the conversation itself out of attention.
@@ -453,6 +453,51 @@ app.post("/memory/notes/manual", (req: Request, res: Response) => {
 //
 // 👍/👎 from the overlay. Appended to voice_profile/feedback.md; init-voice
 // folds the corrections into a regenerated voice profile.
+
+// --- Corpus: add a real exchange that worked ------------------------------
+//
+// The corpus feeds the few-shot examples in every draft, and it used to be a
+// hand-typed file nothing could add to. This is the write path.
+//
+// TRUST: the overlay shows the exchange in an editable box and the user presses
+// Add, so what arrives here has been reviewed by a human. That review is why
+// prompt.ts may keep these examples OUTSIDE the untrusted boundary — do not add
+// an automatic caller.
+app.post("/corpus/exchanges", (req: Request, res: Response) => {
+  const { contact, context, turns, tag, platform } = req.body ?? {};
+  if (typeof contact !== "string" || !contact.trim()) {
+    res.status(400).json({ error: "contact is required" });
+    return;
+  }
+  if (!Array.isArray(turns) || turns.length === 0) {
+    res.status(400).json({ error: "turns must be a non-empty array" });
+    return;
+  }
+  const clean: ExchangeTurn[] = turns
+    .filter((t: unknown): t is { isSelf?: unknown; text?: unknown } => !!t && typeof t === "object")
+    .map((t) => ({ isSelf: !!t.isSelf, text: typeof t.text === "string" ? t.text : "" }))
+    .filter((t) => t.text.trim());
+  if (clean.length === 0) {
+    res.status(400).json({ error: "at least one turn must have text" });
+    return;
+  }
+  try {
+    const path = appendExchange(
+      tenant(req),
+      {
+        contact,
+        context: typeof context === "string" ? context : undefined,
+        turns: clean,
+        tag: typeof tag === "string" && tag.trim() ? tag : undefined,
+      },
+      new Date().toISOString(),
+      typeof platform === "string" ? platform : undefined,
+    );
+    res.json({ ok: true, turns: clean.length, path });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
 
 app.post("/feedback", (req: Request, res: Response) => {
   const { rating, note, contact, suggestion, section } = req.body ?? {};
