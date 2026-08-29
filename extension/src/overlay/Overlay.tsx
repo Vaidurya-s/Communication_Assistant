@@ -166,6 +166,10 @@ export function Overlay({ onClose, coldOpen }: Props) {
   const [status, setStatus] = useState<AnalyzeStatus>({ kind: "idle" });
   const [threadInfo, setThreadInfo] = useState<{ title: string; messages: number; draftLen: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  // "Another take": the alternative draft shown beside the main one. `null` =
+  // no alternative on screen; "" = one is streaming in.
+  const [variant, setVariant] = useState<string | null>(null);
+  const [variantLoading, setVariantLoading] = useState(false);
 
   const [memoryProposal, setMemoryProposal] = useState<{ contact_name: string; note: string } | null>(null);
   const [memorySaved, setMemorySaved] = useState(false);
@@ -322,14 +326,26 @@ export function Overlay({ onClose, coldOpen }: Props) {
   // Streams over a Port so tokens render as they arrive. Resolves when the
   // stream completes (or errors), so callers that `await analyze(...)` still work.
   const analyze = useCallback(
-    (mode: Mode, opts?: { steerOverride?: string }) =>
+    (mode: Mode, opts?: { steerOverride?: string; variationOf?: string }) =>
       new Promise<void>((resolve) => {
-        setStatus({ kind: "loading", mode });
-        setCopied(false);
-        setMemorySaved(false);
-        setFeedbackGiven(null);
-        setShowFeedbackNote(false);
-        setExplain(null);
+        // A variation is a SECOND draft rendered beside the one already on
+        // screen, so it must not touch the primary draft's state: no clearing
+        // the preview, the feedback marks, or the explain panel, and its own
+        // spinner rather than the shared loading status (which would grey out
+        // the mode buttons and make the first draft look like it was replaced).
+        const isVariation = !!opts?.variationOf;
+        if (isVariation) {
+          setVariantLoading(true);
+          setVariant("");
+        } else {
+          setStatus({ kind: "loading", mode });
+          setCopied(false);
+          setMemorySaved(false);
+          setFeedbackGiven(null);
+          setShowFeedbackNote(false);
+          setExplain(null);
+          setVariant(null);
+        }
         const seed_text = mode === "shorter" || mode === "longer" ? preview : undefined;
         const steerVal = (opts?.steerOverride ?? steer).trim() || undefined;
 
@@ -377,23 +393,41 @@ export function Overlay({ onClose, coldOpen }: Props) {
         port.onMessage.addListener((ev: AnalyzeStreamEvent) => {
           if (ev.type === "token") {
             acc += ev.t;
-            setPreview(acc);
+            if (isVariation) setVariant(acc);
+            else setPreview(acc);
             setBackendHealth("online");
           } else if (ev.type === "reply_done") {
             acc = ev.suggested_reply ?? acc;
-            setPreview(acc);
-            originalSuggestionRef.current = acc; // baseline for edit-mining
-            const ex = (ev.stats as { explain?: typeof explain } | undefined)?.explain;
-            setExplain(ex ?? null);
+            if (isVariation) {
+              setVariant(acc);
+            } else {
+              setPreview(acc);
+              originalSuggestionRef.current = acc; // baseline for edit-mining
+              const ex = (ev.stats as { explain?: typeof explain } | undefined)?.explain;
+              setExplain(ex ?? null);
+            }
             setBackendHealth("online");
           } else if (ev.type === "insight") {
-            setMemoryProposal(ev.memory_proposal ?? null);
-            setStrategy(ev.strategy ?? null);
+            // A variation is a rewrite of a draft we already ran insight on —
+            // re-proposing the same memory note would just churn the card.
+            if (!isVariation) {
+              setMemoryProposal(ev.memory_proposal ?? null);
+              setStrategy(ev.strategy ?? null);
+            }
           } else if (ev.type === "error") {
+            if (isVariation) {
+              setVariantLoading(false);
+              setVariant(null);
+            }
             setStatus({ kind: "error", message: ev.message });
             if (/fetch|backend|ECONN|network/i.test(ev.message)) void refreshHealth();
             finish();
           } else if (ev.type === "done") {
+            if (isVariation) {
+              setVariantLoading(false);
+              finish();
+              return;
+            }
             void refreshThread().finally(() => {
               setStatus({ kind: "idle" });
               finish();
@@ -405,13 +439,66 @@ export function Overlay({ onClose, coldOpen }: Props) {
           // Closed before an explicit done/error: treat a partial reply as success,
           // otherwise surface a disconnect.
           if (settled) return;
-          setStatus(acc ? { kind: "idle" } : { kind: "error", message: "stream disconnected" });
+          if (isVariation) {
+            setVariantLoading(false);
+            if (!acc) setVariant(null);
+          } else {
+            setStatus(acc ? { kind: "idle" } : { kind: "error", message: "stream disconnected" });
+          }
           finish();
         });
 
-        port.postMessage({ type: "ANALYZE_REQUEST", mode, seed_text, steer: steerVal } satisfies AnalyzeRequest);
+        port.postMessage({
+          type: "ANALYZE_REQUEST",
+          mode,
+          seed_text,
+          steer: steerVal,
+          variation_of: opts?.variationOf,
+        } satisfies AnalyzeRequest);
       }),
     [preview, refreshHealth, steer],
+  );
+
+  /**
+   * "Another take": a second draft rendered BESIDE the first, not over it.
+   *
+   * Deliberately on demand rather than drafting two up front — the streaming
+   * first draft is the fastest thing the product does, and speculatively paying
+   * for a second LLM call on every Suggest would halve that for a choice the
+   * user usually doesn't need.
+   */
+  const anotherTake = useCallback(() => {
+    if (!preview.trim()) return;
+    void analyze(coldOpen ? "cold_open" : "suggest", {
+      steerOverride: (coldOpen ? intent : steer).trim() || undefined,
+      variationOf: preview,
+    });
+  }, [analyze, preview, steer, intent, coldOpen]);
+
+  /**
+   * Choosing between the two drafts IS a preference signal, so the pick is
+   * recorded as an implicit 👍 on the winner through the existing feedback
+   * route — no new endpoint, and it feeds the same voice-correction loop as the
+   * explicit thumbs.
+   */
+  const chooseDraft = useCallback(
+    async (winner: "original" | "variant") => {
+      const text = winner === "variant" ? variant : preview;
+      if (!text) return;
+      if (winner === "variant") {
+        setPreview(text);
+        originalSuggestionRef.current = text; // new edit-mining baseline
+      }
+      setVariant(null);
+      setFeedbackGiven("up");
+      await postFeedback({
+        rating: "up",
+        contact: coldOpen?.contactName || threadInfo?.title,
+        suggestion: text,
+        note: "Picked over an alternative draft.",
+      });
+    },
+    [variant, preview, coldOpen, threadInfo],
   );
 
   const regenerate = useCallback(() => {
@@ -1009,12 +1096,56 @@ export function Overlay({ onClose, coldOpen }: Props) {
             </div>
           )}
 
+          {variant !== null && (
+            <div className="ca-variant">
+              <div className="ca-variant-head">
+                {variantLoading ? "Another take — writing…" : "Another take"}
+              </div>
+              <textarea
+                value={variant}
+                onChange={(e) => setVariant(e.target.value)}
+                placeholder="An alternative will appear here."
+                className="ca-preview"
+                rows={6}
+              />
+              <div className="ca-row">
+                <button
+                  onClick={() => void chooseDraft("variant")}
+                  disabled={!variant.trim() || variantLoading}
+                  className="ca-btn ca-btn-primary"
+                  title="Use this one — recorded as a 👍"
+                >
+                  Use this one
+                </button>
+                <button
+                  onClick={() => void chooseDraft("original")}
+                  disabled={variantLoading}
+                  className="ca-btn ca-btn-ghost"
+                  title="Keep the first draft — recorded as a 👍 on it"
+                >
+                  Keep the first
+                </button>
+                <button onClick={() => setVariant(null)} className="ca-btn ca-btn-ghost">
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="ca-row">
             <button onClick={copyPreview} disabled={!preview} className="ca-btn ca-btn-primary" title="Copy (Alt+C)">
               {copied ? "Copied ✓" : "Copy"}
             </button>
             <button onClick={regenerate} disabled={!preview || isLoading} className="ca-btn ca-btn-ghost" title="Regenerate (Alt+R)">
               ↻ Regenerate
+            </button>
+            <button
+              onClick={anotherTake}
+              disabled={!preview || isLoading || variantLoading || variant !== null}
+              className="ca-btn ca-btn-ghost"
+              title="Draft a second version beside this one, then pick"
+            >
+              ⇄ Another take
             </button>
             <button onClick={() => setPreview("")} disabled={!preview} className="ca-btn ca-btn-ghost">
               Clear

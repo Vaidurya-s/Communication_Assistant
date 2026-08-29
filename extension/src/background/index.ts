@@ -119,8 +119,9 @@ async function postToBackend(
   mode: AnalyzeRequest["mode"],
   seedText: string | undefined,
   steer: string | undefined,
+  variationOf?: string,
 ): Promise<BackendResponse> {
-  const body = { ...ctx, mode, seed_text: seedText ?? "", steer: steer ?? "" };
+  const body = { ...ctx, mode, seed_text: seedText ?? "", steer: steer ?? "", variation_of: variationOf ?? "" };
   const res = await backendFetch("/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -216,8 +217,12 @@ function takePrefetch(
   mode: AnalyzeRequest["mode"],
   seed: string | undefined,
   steer: string | undefined,
+  variationOf?: string,
 ): BackendResponse | null {
-  if (mode !== "suggest" || seed || steer) return null; // only the plain first draft
+  // Only the plain first draft is prefetchable. A variation request in
+  // particular MUST miss: serving the cached draft would hand back the very
+  // text the user asked for an alternative to.
+  if (mode !== "suggest" || seed || steer || variationOf) return null;
   const entry = prefetches.get(tabId);
   if (!entry) return null;
   if (entry.key !== prefetchKey(ctx) || Date.now() - entry.at > PREFETCH_TTL_MS) {
@@ -304,7 +309,7 @@ async function handleAnalyze(
 
   try {
     const ctx = await resolveAnalyzeContext(req, tab);
-    const resp = await postToBackend(ctx, req.mode, req.seed_text, req.steer);
+    const resp = await postToBackend(ctx, req.mode, req.seed_text, req.steer, req.variation_of);
     sessionFor(tab.id).lastResponse = resp;
     return { type: "BACKEND_RESPONSE", payload: resp };
   } catch (err) {
@@ -363,7 +368,7 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
   }
 
   // Instant path: a speculative prefetch already drafted this exact thread state.
-  const cached = takePrefetch(tabId, ctx, req.mode, req.seed_text, req.steer);
+  const cached = takePrefetch(tabId, ctx, req.mode, req.seed_text, req.steer, req.variation_of);
   if (cached) {
     session.lastResponse = cached;
     send({ type: "reply_done", suggested_reply: cached.suggested_reply, stats: cached.stats });
@@ -372,7 +377,14 @@ async function streamAnalyzeToPort(req: AnalyzeRequest, port: chrome.runtime.Por
     return;
   }
 
-  const body = { ...ctx, mode: req.mode, seed_text: req.seed_text ?? "", steer: req.steer ?? "", stream: true };
+  const body = {
+    ...ctx,
+    mode: req.mode,
+    seed_text: req.seed_text ?? "",
+    steer: req.steer ?? "",
+    variation_of: req.variation_of ?? "",
+    stream: true,
+  };
   let res: Response;
   try {
     res = await backendFetch("/analyze", {

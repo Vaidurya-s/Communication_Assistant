@@ -163,6 +163,17 @@ export const OVERLAY_CSS = `
   padding: 9px 11px; border-radius: 9px; font-size: 12px; color: var(--text);
 }
 
+/* "Another take": the alternative draft, set apart from the primary preview so
+   it reads as a second option rather than a replacement. */
+.ca-variant {
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 9px; padding: 9px; display: flex; flex-direction: column; gap: 7px;
+}
+.ca-variant-head {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
 .ca-memory {
   background: var(--ok-soft); border: 1px solid transparent; border-left: 3px solid var(--ok);
   padding: 11px; border-radius: 9px; font-size: 12px; display: flex; flex-direction: column; gap: 7px;

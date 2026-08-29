@@ -74,6 +74,18 @@ export interface BuildPromptInput {
    * UNTRUSTED_CONVERSATION block.
    */
   examples?: Array<{ title: string; body: string }>;
+  /**
+   * A draft the user already has in hand, for which they've asked for a
+   * genuinely different alternative ("Another take"). The model is told to
+   * diverge from it in opener and structure while holding the same voice.
+   *
+   * Trusted, like `steer`: this is a draft WE produced and the user chose to
+   * keep on screen, not third-party text. So it rides on the TASK directive
+   * OUTSIDE the untrusted boundary — putting it inside would invite the model
+   * to treat its own prior output as data to reason about rather than as the
+   * thing to differ from.
+   */
+  variationOf?: string;
 }
 
 const MAX_MESSAGES = 30;
@@ -324,6 +336,18 @@ export function buildPrompt(input: BuildPromptInput): {
   const context = `${staticPrefix}\n\n${variable}`;
 
   let instruction = instructionFor(resolvedMode, seed, draft);
+
+  // "Another take": diverge from a draft the user is already looking at. Named
+  // explicitly rather than folded into the steer so the model sees the exact
+  // text to differ from, and so a user steer can still be applied on top.
+  const variationOf = (input.variationOf ?? "").trim();
+  if (variationOf) {
+    instruction +=
+      `\n\nI ALREADY HAVE THIS DRAFT (mine — trusted): ${JSON.stringify(variationOf)}\n` +
+      `Write a genuinely DIFFERENT alternative to it: a different opening line, a different ` +
+      `structure, and where possible a different angle on the same point. Same voice, same ` +
+      `facts, same intent — do not simply reword it, and do not reuse its opener.`;
+  }
 
   // Apply the user's steer (trusted) as an extra directive on top of the mode.
   const steer = (input.steer ?? "").trim();

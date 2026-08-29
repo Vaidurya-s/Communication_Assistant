@@ -197,6 +197,9 @@ app.post("/analyze", async (req: Request, res: Response) => {
   const mode: Mode = VALID_MODES.has(rawMode as Mode) ? (rawMode as Mode) : "suggest";
   const seedText: string = typeof body.seed_text === "string" ? body.seed_text : "";
   const steer: string = typeof body.steer === "string" ? body.steer : "";
+  // "Another take": a draft the user already has, to diverge from. Trusted —
+  // it's our own prior output, kept on screen by the user (see prompt.ts).
+  const variationOf: string = typeof body.variation_of === "string" ? body.variation_of : "";
 
   const contactName: string =
     typeof ctx?.conversation_title === "string" ? ctx.conversation_title.trim() : "";
@@ -283,6 +286,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     existingNotes: existingNoteBodies,
     aboutMe,
     examples,
+    variationOf,
   });
 
   // Explainability ("why did it write this?"): the deterministic inputs that

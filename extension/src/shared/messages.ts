@@ -14,6 +14,11 @@ export interface AnalyzeRequest {
    * it's the user's own instruction, applied OUTSIDE the untrusted boundary.
    */
   steer?: string;
+  /**
+   * "Another take": a draft already on screen that the new one should differ
+   * from. Trusted like `steer` — it's our own prior output the user kept.
+   */
+  variation_of?: string;
 }
 
 export interface BackendResponse {
