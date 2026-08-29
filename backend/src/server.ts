@@ -63,7 +63,12 @@ import { distill, distillSection } from "./voiceDistill.js";
 import { computeStrength } from "./voiceStrength.js";
 import { lintProfileText } from "./voiceLint.js";
 import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
-import { selectAboutMeContext } from "./contextRetrieval.js";
+import { selectAboutMeContext, selectRelevantContext } from "./contextRetrieval.js";
+import { loadCorpusExchanges } from "./corpus.js";
+
+// How many real past exchanges to show the model per draft. Two is enough to
+// convey rhythm without crowding the conversation itself out of attention.
+const MAX_FEWSHOT_EXAMPLES = 2;
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -261,6 +266,14 @@ app.post("/analyze", async (req: Request, res: Response) => {
     body: c.body,
   }));
 
+  // Few-shot grounding (ROADMAP C2): the 2 past exchanges most on-topic for this
+  // contact, ranked against the SAME signal as ABOUT ME. Only gemini-cli could
+  // reach the corpus before (it greps its sandbox copy); injecting the top few
+  // gives every provider the same floor. Empty when the tenant has no corpus.
+  const examples = selectRelevantContext(loadCorpusExchanges(t), aboutSignal, {
+    max: MAX_FEWSHOT_EXAMPLES,
+  }).map((e) => ({ title: e.title, body: e.body }));
+
   const { instruction, context, staticPrefix, resolvedMode, transcript } = buildPrompt({
     ctx,
     voiceProfile: getVoice(t),
@@ -269,6 +282,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     steer,
     existingNotes: existingNoteBodies,
     aboutMe,
+    examples,
   });
 
   // Explainability ("why did it write this?"): the deterministic inputs that
@@ -279,6 +293,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     context_items: aboutMe.map((c) => ({ type: c.type, title: c.title })),
     notes_used: existingNoteBodies.length,
     voice_chars: getVoice(t).length,
+    examples_used: examples.map((e) => e.title),
   };
 
   // Insight runs only on a real conversation (shorter/longer are pure rewrites).
