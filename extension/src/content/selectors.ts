@@ -99,6 +99,104 @@ export const LINKEDIN_SELECTORS: LinkedInSelectorMap = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Profile pages (/in/<handle>/)
+// ---------------------------------------------------------------------------
+//
+// These used to live inline in content/profile.ts, which is exactly why they
+// rotted unnoticed while the messaging chains stayed current: this file is the
+// documented first place to look when extraction breaks, and the profile
+// selectors weren't in it. They are now.
+//
+// LinkedIn has moved profile pages to a SERVER-DRIVEN UI. Verified live
+// (2026-08-29) against a real profile:
+//   - No <h1>. The contact's name is an <h2> inside the top card.
+//   - No #about / #experience / #education / #skills id anchors.
+//   - No og:title / og:description meta tags and no JSON-LD on the logged-in
+//     SPA view, so the old meta fallbacks are dead too.
+//   - Every class is an obfuscated hash ("_02484ad3 _1f667e81 …") that changes
+//     between deploys — class selectors are worthless here.
+//   - BUT each section card carries a STABLE, SEMANTIC id:
+//       com.linkedin.sdui.profile.card.ref<opaque>Topcard
+//       com.linkedin.sdui.profile.card.ref<opaque>About
+//     The `ref<opaque>` middle is per-profile; the prefix and the trailing
+//     section name are stable. Anchoring on those is the most durable hook the
+//     new layout offers, which is what `sduiCard` builds.
+//   - span[aria-hidden="true"] duplication is GONE (0 on every card), so the
+//     old "read the aria-hidden twin" trick no longer finds anything.
+
+/** Prefix shared by every server-driven profile card id. */
+const SDUI_CARD_PREFIX = "com.linkedin.sdui.profile.card.";
+
+/**
+ * Selector for a server-driven profile card by its stable trailing section
+ * name, e.g. `sduiCard("About")`. Matches on prefix + suffix so the opaque
+ * per-profile ref in the middle is ignored.
+ */
+export function sduiCard(section: string): string {
+  return `[id^="${SDUI_CARD_PREFIX}"][id$="${section}"]`;
+}
+
+export interface LinkedInProfileSelectorMap {
+  /** The identity card: name, headline, current company/school, location. */
+  topcard: SelectorChain;
+  /** The contact's display name within the top card. */
+  name: SelectorChain;
+  /**
+   * One entry in an Experience/Education/Skills list. Legacy class hooks first
+   * (they still work on the older layout some accounts still get), then a
+   * structural `li` fallback that survives class obfuscation.
+   */
+  listItem: SelectorChain;
+  /** Text carriers inside a list entry, in preference order. */
+  listItemText: SelectorChain;
+}
+
+export const LINKEDIN_PROFILE_SELECTORS: LinkedInProfileSelectorMap = {
+  topcard: [
+    sduiCard("Topcard"),
+    // Legacy layouts.
+    ".pv-top-card",
+    ".pv-text-details__left-panel",
+    // Structural last resort: the block that holds the page's main heading.
+    "main section:first-of-type",
+  ],
+
+  name: [
+    // Legacy layout put the name in an h1.
+    "main h1",
+    "h1",
+    // Server-driven layout: an h2 inside the top card.
+    `${sduiCard("Topcard")} h2`,
+  ],
+
+  listItem: [
+    ".pvs-list__item--line-separated",
+    "li.artdeco-list__item",
+    // Structural: the new cards still render entries as list items, and a
+    // section root scopes this tightly enough that a bare `li` is safe.
+    "li",
+  ],
+
+  listItemText: [
+    // Legacy: LinkedIn duplicated every string into an aria-hidden twin.
+    'span[aria-hidden="true"]',
+    // Server-driven layout carries the text in plain <p>/<span> leaves.
+    "p",
+    "span",
+  ],
+};
+
+/** Section names as they appear both as SDUI id suffixes and as heading text. */
+export const PROFILE_SECTIONS = {
+  about: "About",
+  experience: "Experience",
+  education: "Education",
+  skills: "Skills",
+} as const;
+
+export type ProfileSectionKey = keyof typeof PROFILE_SECTIONS;
+
 export const LINKEDIN_MESSAGING_PATH = "/messaging/";
 
 /**
