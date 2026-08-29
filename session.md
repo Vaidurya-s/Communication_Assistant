@@ -3,6 +3,97 @@
 A running handoff doc. Read this first when you come back; it tells you where things are and how to resume. Pairs with `CLAUDE.md` (architecture reference) — this file is the *current state*, that one is the *durable map*.
 
 ---
+## Branch cleanup + the four remaining feature tracks (2026-08-29)
+
+Cleared the branch backlog and shipped everything still open on the roadmap.
+**Six branches are on the remote awaiting review.** `gh` was not authenticated,
+so the PRs still need opening — run `gh auth login`, then open one per branch.
+
+**Branch hygiene.** Five local branches were already merged into `master` and
+were deleted; `feat/cold-open-first-message` in particular was a byte-identical
+duplicate of `612c3d6` (same `git patch-id`), not pending work. Two stale remote
+branches (`feat/structured-feedback`, `feat/voice-and-perf`) were deleted too.
+The demo render (`Communication_Assistant*.mp4/.srt`, 38 MB) is now gitignored;
+`CLAUDE.md`, `session.md`, `VIDEO.md` and the report artifacts are tracked, with
+the four architecture diagrams renamed from their camera-roll filenames.
+
+**Branches on the remote.** The last four stack in this order — each edits the
+same `server.ts` / `prompt.ts` regions, so merge them in sequence:
+
+| Branch | What | Base |
+|---|---|---|
+| `fix/extraction-render-race` | The 4 render-race commits, previously unpushed | master |
+| `fix/linkedin-profile-selectors` | Profile extraction vs. the server-driven layout | master |
+| `feat/about-me-project-cap` | ABOUT ME project cap + the docs commit | master |
+| `feat/few-shot-grounding` | C2 | ↑ |
+| `feat/reply-variations` | C3 | ↑ |
+| `feat/cross-conversation-memory` | C4 | ↑ |
+
+**C2 — few-shot grounding** (`backend/src/corpus.ts`). Only `gemini-cli` could
+reach `linkedin_successful_messages.md`; every toolless provider (anthropic,
+openai-compat — now the default) got nothing. The two most on-topic exchanges
+are now injected per contact, ranked with the *existing* `selectRelevantContext`.
+Two things the real corpus forced: it interleaves genuine exchanges with the
+user's own distilled analysis ("Punctuation quirks"), so `parseCorpus` keeps only
+sections that transcribe a message (20 of 30); and the section renders in the
+VARIABLE remainder, never `staticPrefix`, or the anthropic cache prefix would
+change on every request. A test pins that.
+
+**LinkedIn profile selectors.** LinkedIn moved profiles to a **server-driven
+UI**. Verified live: no `<h1>`, no `#about`/`#experience` anchors, no `og:` meta
+or JSON-LD on the logged-in SPA, no `.pvs-list__item--line-separated`, and zero
+`span[aria-hidden="true"]` duplication — every hook the readers used. What it
+*does* give is a stable semantic card id,
+`com.linkedin.sdui.profile.card.ref<opaque>About`, which `getSectionRoot` now
+tries first. The top card is ~10 levels of anonymous div, so identity fields are
+read by anchoring on the name heading and taking only its DIRECT-CHILD `<p>`
+siblings — that is what separates the headline from the "Verify in 2 minutes"
+promo and four upsells. Location is found via the "Contact info" landmark. The
+chains moved into `content/selectors.ts` (they had rotted precisely because
+`profile.ts` inlined its own, against what CLAUDE.md says). Verified on the real
+page: name, headline, company, location, about and skills all extract;
+previously only name did.
+
+- **Not observed:** Experience/Education entry markup — the profile available for
+  capture has none of those sections. Those readers depend only on what every
+  layout shares, and `profileExtractionGaps()` plus a console warning now fire
+  instead of returning an empty shell in silence. Capture a real one next time
+  you view a filled-in profile.
+
+**C3 — "Another take".** A second draft rendered *beside* the first (Regenerate
+replaces it), generated on demand so the fast streaming first draft is never
+slowed by a speculative second call. `variation_of` is a first-class trusted
+field, outside the untrusted fence. Picking either draft posts an implicit 👍 via
+the existing `/feedback` route. The prefetch cache needed a guard — without it a
+variation request would be served the very draft the user wanted an alternative
+to.
+
+**C4 — cross-conversation patterns** (`backend/src/memoryPatterns.ts`, pure).
+`GET /memory/patterns` is READ-ONLY; adopting a proposal goes through the
+existing gates (`POST /context`, `POST /memory/notes/manual`), so no new trusted
+channel is created. Real data taught two lessons, both now tested: ranking on raw
+recurrence surfaced "potential" / "collaboration" / "opportunities" — strategy-log
+boilerplate, because the model repeats its own advice shape — so a theme must now
+be grounded in a **confirmed note**. With that, the top theme became "quantum",
+which is correct.
+
+### Two real problems found along the way (neither fixed here)
+
+1. **The configured LLM model is dead.** `.env` points at
+   `meta/llama-3.1-70b-instruct` on NVIDIA, which reached end-of-life
+   2026-08-26 — every `/analyze` returns `410 Gone`. Pick a current model in the
+   dashboard's Settings tab. This is why C2 was verified through a direct
+   prompt-assembly probe rather than a live draft.
+2. **A stored contact name contains scraped UI chrome** — `contacts.name` holds
+   `"Divyanshu Gupta Status is reachable Mobile • 10h"`; thread-title extraction
+   swallowed the presence indicator. `memoryPatterns` cleans names before they
+   enter a proposal, but that is damage control: the stored row is still wrong,
+   and whatever wrote it needs a look.
+
+Full suite green throughout: **188 backend + 33 extension tests**, both builds
+clean.
+
+---
 
 ## Extraction render-race + snapshot triage (2026-06-30)
 
@@ -65,78 +156,6 @@ Network carries **0**.
 
 ---
 
-## In progress — voice + performance build (2026-06-17, agent-team)
-
-Executing `docs/voice-onboarding-plan.md` + `docs/performance-plan.md` in waves with parallel subagents (disjoint file ownership).
-
-**Wave 1 — DONE, verified end-to-end (backend tsc + 95 tests green; live-tested on :8000):**
-- **Native Anthropic provider** `llm/anthropic.ts` (`@anthropic-ai/sdk`) with `cache_control` on the static voice prefix + streaming (`runStream`). Registered in config.ts/llm/index.ts/presets.ts; `.env` = `LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL` (default `claude-haiku-4-5`). Dashboard Settings can switch to it live. `prompt.ts` now returns `staticPrefix` (voice profile + workspace note, byte-stable) separate from the variable remainder; the anthropic provider caches the prefix, others get the full context unchanged.
-- **Personal-context layer** (`context_items` table in db.ts, `context.ts` tenant-scoped CRUD + confirm, tests). `prompt.ts` injects a trusted **ABOUT ME** block from confirmed items. Verified live: a cold-open reply referenced an added project ("Raft-based KV store in Go").
-- **Voice sections + shared distill**: `voiceDistill.ts` (extracted, tenant-aware; CLI + endpoints share it), `voiceSections.ts` (sections.json ↔ compile to strategy_analysis.md, adopt-existing), `initVoice.ts` refactored.
-- **Endpoints** added to server.ts: `/context` CRUD + `/context/:id/confirm`; `/voice/sections` GET, `/voice/sections/:key` PUT, `/voice/compile`, `/voice/distill` (busts voiceCache). All smoke-tested.
-
-**Wave 2 — built, contract-verified (browser visual check PENDING — extension was disconnected):**
-- Dashboard editing UI (`backend/public/*`): Voice tab → editable section cards + Compile bar + paste-to-distill; new **About me** tab → context CRUD with confirm. `node --check` clean, endpoint shapes curl-verified. Served statically (no build/restart needed).
-
-**Not yet done (next):** streaming reply to overlay (SSE + Port relay + overlay incremental — needs browser verification), insight decouple (Phase A), cold-start flows (interview, infer-from-LinkedIn), provenance/confidence per section, gemini-cli plan-mode speed fix.
-
-**To verify Wave 2 visually:** reconnect the Chrome/Edge extension, open `http://localhost:8000/` → Voice + About me tabs. To feel the caching win: set `LLM_PROVIDER=anthropic` + an `ANTHROPIC_API_KEY` and watch a 2nd draft on the same thread.
-
----
-
-## Cold-open "first message" feature (2026-06-17)
-
-New feature: draft a first message to someone you haven't messaged, from their
-**profile** (the profile is the grounding; no conversation). Two entry points:
-profile-page overlay (cold-open variant) + popup "Draft a first message" (by URL).
-
-- **Backend** (`prompt.ts`/`server.ts`): new `cold_open` mode — verified live via
-  `gemini-cli` (real draft, guard rejects when no `contact_profile` → 400, contact
-  + profile persisted, insight skipped). Trust boundary unchanged (profile stays
-  UNTRUSTED; intent rides the trusted `steer`).
-- **Extension**: cold-open overlay variant (intent box + "Draft intro"), popup
-  compose path, `COLD_OPEN_CONTEXT` plumbing. All tsc/tests/build green.
-- **Bug found+fixed in browser test**: the profile overlay was gated on
-  `!document.hidden`, which also broke background-opened profile tabs. Replaced
-  with an `ENRICHMENT_HASH` (`#comms-enrich`) marker the fetcher appends to its
-  hidden scrape tabs, so the overlay mounts on any real profile, visibility aside.
-- **Selector currency (LinkedIn)**: current LinkedIn profile DOM is the newer
-  **obfuscated-class** layout — no `<h1>`, no `#about`/`#experience` id anchors
-  (name is an `<h2>`; sections are `<h2>` headings). Updated `profile.ts`
-  `readName()` to fall back to `document.title`/og:title (layout-proof) and
-  `getSectionRoot()` to fall back to matching `<h2>/<h3>` heading text. Verified
-  live: name + Experience section now extract. **Follow-up:** the list-item
-  selectors (`.pvs-list__item--line-separated`) and headline/about readers are
-  still class-based and likely need refreshing for this layout — affects profile
-  enrichment generally, not just cold-open.
-- **Verified live in browser (Edge):** on a real LinkedIn profile, the cold-open
-  overlay mounts ("First message to <name>"), intent → **Draft intro** → a
-  personalized, voice-matched first message rendered in the preview. Name +
-  profile extraction work via the new layout-robust selectors. Full round-trip
-  confirmed end to end.
-
----
-
-## Current state (as of 2026-06-17)
-
-**Last commit:** `fbbfc0c  feat: data export + erasure, rate limiting, Dockerfile, deploy guide`
-
-Working tree: untracked release/demo artifacts only (`CLAUDE.md`, `session.md`, `VIDEO.md`, `Communication_Assistant.{srt,mp4}`, `docs/project-report.{html,pdf}`, `docs/images/Screenshot *.png`). No tracked source is dirty.
-
-**Recent commit history**
-```
-fbbfc0c  feat: data export + erasure, rate limiting, Dockerfile, deploy guide
-a7dc536  feat: per-tenant LLM keys (AES-256-GCM), configurable extension URL
-dd77b51  feat: bearer-token auth, enforced-mode guard, tenant CLI
-3976e70  feat: multi-tenant data model — tenant_id scoping + composite PK/FK
-a6e0264  feat: voice eval harness, eval retry fix, manual panel open button
-886996b  feat: Gmail extractor, platform abstraction, multi-platform UI copy
-```
-
-All pushed to `github.com/Vaidurya-s/Communication_Assistant` (branch `master`).
-
----
-
 ## What works end-to-end right now
 
 - **Reply drafting**: LinkedIn + Gmail extraction (platform abstraction in `extension/src/platforms/`), Shadow-DOM overlay with `Suggest / Follow-up / Shorter / Longer`, parallel reply + insight LLM calls.
@@ -174,19 +193,36 @@ Run tests: `npm test` (root) or `npx vitest run <file>` inside `backend/` or `ex
 
 ## Next-up / open threads
 
-- **Roadmap tracks** (see `docs/ROADMAP.md`, `docs/ROADMAP-HOSTING.md`): first CI + LinkedIn-selector resilience + Chrome Web Store release; more platforms beyond Gmail; voice-quality eval loop + reply variations; finish the optional hosted mode.
-- **H4 (if not done)** — check whether the hosting roadmap's remaining phase (per-tenant voice upload / onboarding UI) has landed; H1–H3 and H5 are in. Verify against `docs/ROADMAP-HOSTING.md`.
-- **Selector currency** — when extraction returns 0 messages, use the overlay debug-pane snapshot button → `/snapshots` to capture real DOM and fix `extension/src/content/selectors.ts`.
+- **Open the six PRs.** Everything below is pushed but unreviewed; `gh auth login`
+  first. Merge the four stacked branches in the order given above.
+- **Fix the dead LLM model** (Settings → provider) — nothing drafts until then.
+- **Roadmap** — Tracks A, B and D are done (hosting H1–H5 all landed, CI exists,
+  Vitest covers both workspaces). Track C is now complete too: C1 voice-eval,
+  C2 few-shot, C3 variations, C4 cross-conversation memory. What genuinely
+  remains: **A5 Chrome Web Store submission** (store copy, promo assets, the
+  manual billed submission) and **C5 opt-in Google Calendar connect** — which
+  deliberately crosses "copy-never-send", so it must stay explicit and off by
+  default.
+- **Capture a filled-in LinkedIn profile** to finish the Experience/Education
+  entry selectors — see the caveat above.
+- **Selector currency** — when extraction returns 0 messages, use the overlay
+  debug-pane snapshot button → `/snapshots` to capture real DOM and fix
+  `extension/src/content/selectors.ts`.
 
 ---
 
 ## Gotchas / things to remember
 
-- **session.md is untracked** (never committed) — it's the handoff doc and is safe to commit, but currently isn't in git. Decide whether to commit it.
+- **session.md is tracked now** (on `feat/about-me-project-cap`), along with
+  `CLAUDE.md` and `VIDEO.md`. Older sections live in `session-archive.md`.
 - **`voice_profile/` and `backend/.env` are gitignored** — a fresh clone has neither; backend refuses to boot in local mode without `voice_profile/strategy_analysis.md`.
 - **Live provider switch** mutates `process.env` directly because `config.ts`'s loader only fills *missing* keys — don't "simplify" that to re-reading `.env`.
 - **Tenant scoping is mandatory** — every `memory.ts` query takes `tenantId` first. Don't add an unscoped query.
-- Large demo binaries (`Communication_Assistant_nocap.mp4`, 38 MB) are untracked in the root — keep them out of commits.
+- Large demo binaries (`Communication_Assistant*.mp4/.srt`, 38 MB) are now
+  **gitignored** rather than merely untracked — keep it that way.
+- **The few-shot section must never enter `staticPrefix`** — it's ranked per
+  contact, so it would break the anthropic cache prefix on every request. A test
+  in `prompt.test.ts` guards this; don't "tidy" it into the prefix.
 
 ---
 

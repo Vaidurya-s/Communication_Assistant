@@ -23,6 +23,7 @@ import {
   getAllContacts,
   getContact,
   getNotesFor,
+  getAllConfirmedNotes,
   getRecentStrategies,
   getStats,
   recordStrategy,
@@ -64,6 +65,7 @@ import { computeStrength } from "./voiceStrength.js";
 import { lintProfileText } from "./voiceLint.js";
 import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
 import { selectAboutMeContext, selectRelevantContext } from "./contextRetrieval.js";
+import { findRecurringTopics, findRelationshipStages } from "./memoryPatterns.js";
 import { loadCorpusExchanges } from "./corpus.js";
 
 // How many real past exchanges to show the model per draft. Two is enough to
@@ -197,6 +199,9 @@ app.post("/analyze", async (req: Request, res: Response) => {
   const mode: Mode = VALID_MODES.has(rawMode as Mode) ? (rawMode as Mode) : "suggest";
   const seedText: string = typeof body.seed_text === "string" ? body.seed_text : "";
   const steer: string = typeof body.steer === "string" ? body.steer : "";
+  // "Another take": a draft the user already has, to diverge from. Trusted —
+  // it's our own prior output, kept on screen by the user (see prompt.ts).
+  const variationOf: string = typeof body.variation_of === "string" ? body.variation_of : "";
 
   const contactName: string =
     typeof ctx?.conversation_title === "string" ? ctx.conversation_title.trim() : "";
@@ -283,6 +288,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
     existingNotes: existingNoteBodies,
     aboutMe,
     examples,
+    variationOf,
   });
 
   // Explainability ("why did it write this?"): the deterministic inputs that
@@ -547,6 +553,34 @@ app.get("/snapshots", (req: Request, res: Response) => {
 app.get("/memory/contacts", (req: Request, res: Response) => {
   try {
     res.json({ contacts: getAllContacts(tenant(req)) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Cross-conversation patterns (ROADMAP C4) -------------------------------
+//
+// READ-ONLY, and deliberately so. These proposals are machine-derived, and
+// prompt.ts trusts memory notes and ABOUT ME items only because a user
+// confirmed each one. So nothing here writes: the dashboard renders the
+// proposals and the user adopts one through the EXISTING gates — POST /context
+// for a theme, POST /memory/notes/manual for a relationship hint. Adopting IS
+// the confirmation, which is why there's no separate confirm step and no
+// unconfirmed rows piling up on every dashboard visit.
+app.get("/memory/patterns", (req: Request, res: Response) => {
+  const t = tenant(req);
+  try {
+    const input = {
+      notes: getAllConfirmedNotes(t).map((n) => ({ contact_name: n.contact_name, body: n.body })),
+      strategies: getRecentStrategies(t, 500).map((s) => ({
+        contact_name: s.contact_name,
+        text: s.text,
+      })),
+    };
+    res.json({
+      topics: findRecurringTopics(input),
+      relationships: findRelationshipStages(input),
+    });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

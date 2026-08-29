@@ -785,6 +785,7 @@ async function loadAbout() {
         achievements, a short bio, and what you're after. Items distilled automatically show up as
         <span class="badge pending">pending</span> until you confirm them.</p>
     </div>
+    <div id="patternsPanel"></div>
     ${CONTEXT_GROUPS.map((g) => {
       const items = grouped[g.type] || [];
       return `<div class="panel ctx-group" data-type="${g.type}">
@@ -800,8 +801,80 @@ async function loadAbout() {
   $$("#aboutContent .ctx-group [data-act='add']").forEach((b) =>
     b.addEventListener("click", () => addCtxItem(b.closest(".ctx-group").dataset.type)),
   );
+  void loadPatterns();
 }
 $("#refreshAbout").addEventListener("click", loadAbout);
+
+/**
+ * Cross-conversation patterns: themes that recur across DIFFERENT contacts, and
+ * how far along each relationship is.
+ *
+ * These are derived, not confirmed, so nothing here is in the database and
+ * nothing reaches a prompt on its own. Adopting one routes through the existing
+ * gates — POST /context for a theme, POST /memory/notes/manual for a
+ * relationship hint — which is exactly where the user's confirmation happens.
+ * Failure is silent by design: this is an extra, and it must never break the
+ * About me tab.
+ */
+async function loadPatterns() {
+  const box = $("#patternsPanel");
+  if (!box) return;
+  let data;
+  try { data = await api("/memory/patterns"); } catch { box.innerHTML = ""; return; }
+
+  const topics = data.topics || [];
+  const rels = (data.relationships || []).filter((r) => r.stage !== "new").slice(0, 8);
+  if (topics.length === 0 && rels.length === 0) { box.innerHTML = ""; return; }
+
+  box.innerHTML = `<div class="panel">
+    <div class="panel-head"><h2>Patterns <span class="muted small">(${topics.length + rels.length})</span></h2><span class="panel-kick">Across conversations</span></div>
+    <p class="muted">Noticed across your contacts, not stored yet. Adopt one and it becomes a normal
+      confirmed item — nothing here reaches a draft until you do.</p>
+    ${topics.length ? `<div class="ctx-list">${topics.map((t, i) => `
+      <div class="ctx-item pending" data-topic="${i}">
+        <div class="ctx-item-head"><strong>${esc(t.title)}</strong><span class="badge pending">suggested</span></div>
+        <div class="muted small">${esc(t.body)}</div>
+        <div class="ctx-actions"><button class="icon-btn ok" data-act="adopt-topic">+ add to About me</button></div>
+      </div>`).join("")}</div>` : ""}
+    ${rels.length ? `<div class="ctx-list">${rels.map((r, i) => `
+      <div class="ctx-item pending" data-rel="${i}">
+        <div class="ctx-item-head"><strong>${esc(r.contact)}</strong><span class="badge pending">${esc(r.stage)}</span></div>
+        <div class="muted small">${esc(r.hint)}</div>
+        <div class="ctx-actions"><button class="icon-btn ok" data-act="adopt-rel">+ save as a note</button></div>
+      </div>`).join("")}</div>` : ""}
+  </div>`;
+
+  $$('#patternsPanel [data-act="adopt-topic"]').forEach((b) => {
+    b.addEventListener("click", async () => {
+      const t = topics[Number(b.closest("[data-topic]").dataset.topic)];
+      try {
+        await api("/context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "looking_for", title: t.title, body: t.body, tags: [t.term] }),
+        });
+        toast("Added to About me");
+        loadAbout();
+      } catch (err) { toast(err.message, "err"); }
+    });
+  });
+
+  $$('#patternsPanel [data-act="adopt-rel"]').forEach((b) => {
+    b.addEventListener("click", async () => {
+      const r = rels[Number(b.closest("[data-rel]").dataset.rel)];
+      try {
+        await api("/memory/notes/manual", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contact_name: r.contact, note: r.hint }),
+        });
+        toast(`Saved a note on ${r.contact}`);
+        b.disabled = true;
+        b.textContent = "saved";
+      } catch (err) { toast(err.message, "err"); }
+    });
+  });
+}
 
 function renderCtxItem(it) {
   const pending = it.confirmed === 0;
