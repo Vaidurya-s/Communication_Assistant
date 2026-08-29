@@ -23,6 +23,7 @@ import {
   getAllContacts,
   getContact,
   getNotesFor,
+  getAllConfirmedNotes,
   getRecentStrategies,
   getStats,
   recordStrategy,
@@ -64,6 +65,7 @@ import { computeStrength } from "./voiceStrength.js";
 import { lintProfileText } from "./voiceLint.js";
 import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
 import { selectAboutMeContext, selectRelevantContext } from "./contextRetrieval.js";
+import { findRecurringTopics, findRelationshipStages } from "./memoryPatterns.js";
 import { loadCorpusExchanges } from "./corpus.js";
 
 // How many real past exchanges to show the model per draft. Two is enough to
@@ -551,6 +553,34 @@ app.get("/snapshots", (req: Request, res: Response) => {
 app.get("/memory/contacts", (req: Request, res: Response) => {
   try {
     res.json({ contacts: getAllContacts(tenant(req)) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Cross-conversation patterns (ROADMAP C4) -------------------------------
+//
+// READ-ONLY, and deliberately so. These proposals are machine-derived, and
+// prompt.ts trusts memory notes and ABOUT ME items only because a user
+// confirmed each one. So nothing here writes: the dashboard renders the
+// proposals and the user adopts one through the EXISTING gates — POST /context
+// for a theme, POST /memory/notes/manual for a relationship hint. Adopting IS
+// the confirmation, which is why there's no separate confirm step and no
+// unconfirmed rows piling up on every dashboard visit.
+app.get("/memory/patterns", (req: Request, res: Response) => {
+  const t = tenant(req);
+  try {
+    const input = {
+      notes: getAllConfirmedNotes(t).map((n) => ({ contact_name: n.contact_name, body: n.body })),
+      strategies: getRecentStrategies(t, 500).map((s) => ({
+        contact_name: s.contact_name,
+        text: s.text,
+      })),
+    };
+    res.json({
+      topics: findRecurringTopics(input),
+      relationships: findRelationshipStages(input),
+    });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

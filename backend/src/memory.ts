@@ -227,6 +227,25 @@ export function getNotesFor(
 }
 
 /**
+ * Every CONFIRMED note across all of this tenant's contacts, newest first.
+ *
+ * `getNotesFor` is per contact by design (that's what a prompt needs). This is
+ * the cross-contact read that cross-conversation patterns require — the whole
+ * point there is spotting what recurs BETWEEN people, which a per-contact query
+ * structurally cannot see. Unconfirmed notes are excluded: an unconfirmed note
+ * isn't yet a fact, so it must not feed a derived proposal either.
+ */
+export function getAllConfirmedNotes(tenantId: string, limit = 1000): Note[] {
+  const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 5000) : 1000;
+  return getDb()
+    .prepare(
+      `SELECT * FROM notes WHERE tenant_id = ? AND confirmed_by_user = 1
+       ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .all(tenantId, n) as Note[];
+}
+
+/**
  * Write a user-confirmed note. Two flavours:
  *   source='auto'   → originally proposed by the LLM, user clicked Save
  *   source='manual' → user typed and submitted it themselves
