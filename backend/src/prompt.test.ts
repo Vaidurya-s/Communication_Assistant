@@ -190,3 +190,51 @@ describe("buildPrompt variation ('Another take')", () => {
     expect(buildPrompt(base({ variationOf: priorDraft })).staticPrefix).toBe(buildPrompt(base()).staticPrefix);
   });
 });
+
+describe("buildPrompt platform register", () => {
+  function ctxFor(platform: string, extra: Record<string, unknown> = {}) {
+    return { ...base().ctx, platform, ...extra };
+  }
+
+  it("gives Gmail an email register", () => {
+    const r = buildPrompt(base({ ctx: ctxFor("gmail") }));
+    expect(r.instruction).toContain("This is EMAIL, not a chat message");
+    expect(r.instruction).toContain("sign-off");
+  });
+
+  it("leaves LinkedIn byte-identical to the platform-less instruction", () => {
+    // LinkedIn is the register the voice profile was tuned against, so adding
+    // per-platform rules must not have changed it at all.
+    const linkedin = buildPrompt(base({ ctx: ctxFor("linkedin") }));
+    const unset = buildPrompt(base());
+    expect(linkedin.instruction).toBe(unset.instruction);
+    expect(linkedin.instruction).not.toContain("This is EMAIL");
+  });
+
+  it("falls back to the plain instruction for an unknown platform", () => {
+    const r = buildPrompt(base({ ctx: ctxFor("mastodon") }));
+    expect(r.instruction).toBe(buildPrompt(base()).instruction);
+  });
+
+  it("puts the subject INSIDE the untrusted fence", () => {
+    // A subject line is written by whoever started the thread — attacker
+    // controlled like any other extracted string.
+    const r = buildPrompt(base({ ctx: ctxFor("gmail", { subject: "Re: FPGA collaboration" }) }));
+    const fence = r.context.indexOf("<UNTRUSTED_CONVERSATION>");
+    const close = r.context.indexOf("</UNTRUSTED_CONVERSATION>");
+    const at = r.context.indexOf("Re: FPGA collaboration");
+    expect(at).toBeGreaterThan(fence);
+    expect(at).toBeLessThan(close);
+    expect(r.instruction).not.toContain("Re: FPGA collaboration");
+  });
+
+  it("renders a null subject when the platform has none", () => {
+    expect(buildPrompt(base()).context).toContain('"subject": null');
+  });
+
+  it("leaves staticPrefix untouched by platform", () => {
+    expect(buildPrompt(base({ ctx: ctxFor("gmail") })).staticPrefix).toBe(
+      buildPrompt(base()).staticPrefix,
+    );
+  });
+});

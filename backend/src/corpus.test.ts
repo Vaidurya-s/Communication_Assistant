@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { parseCorpus } from "./corpus.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { corpusPath, loadCorpusExchanges, parseCorpus, resetCorpusCache } from "./corpus.js";
+import { voiceDirFor } from "./voiceProfile.js";
 
 // A miniature of the real file's shape: a title + capture-notes preamble, then
 // numbered `##` exchange sections separated by `---` rules.
@@ -116,5 +119,64 @@ describe("parseCorpus", () => {
     const items = parseCorpus("## 1. A\r\n> body line\r\n## 2. B\r\n> other");
     expect(items).toHaveLength(2);
     expect(items[0].body).toBe("> body line");
+  });
+});
+
+/**
+ * Platform resolution needs real files on disk, so these use a throwaway tenant
+ * under `backend/data/tenants/` (gitignored, and the same path the app itself
+ * uses for a hosted tenant) rather than mocking the fs.
+ */
+describe("corpusPath / loadCorpusExchanges — platform resolution", () => {
+  const TENANT = "corpus-platform-test";
+  let dir: string;
+
+  const EXCHANGE = (who: string) => `## 1. ${who} (test)\n\n**Me → ${who}:**\n> hello from ${who}\n`;
+
+  beforeEach(() => {
+    dir = voiceDirFor(TENANT);
+    mkdirSync(dir, { recursive: true });
+    resetCorpusCache();
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    resetCorpusCache();
+  });
+
+  it("prefers the platform-specific corpus when it exists", () => {
+    writeFileSync(join(dir, "linkedin_successful_messages.md"), EXCHANGE("LinkedInPerson"));
+    writeFileSync(join(dir, "gmail_successful_messages.md"), EXCHANGE("GmailPerson"));
+    expect(loadCorpusExchanges(TENANT, "gmail")[0].title).toContain("GmailPerson");
+    expect(loadCorpusExchanges(TENANT, "linkedin")[0].title).toContain("LinkedInPerson");
+  });
+
+  it("falls back to the LinkedIn corpus when the platform has none", () => {
+    // Imperfect-register examples beat no examples for a user who has only ever
+    // curated the original corpus.
+    writeFileSync(join(dir, "linkedin_successful_messages.md"), EXCHANGE("LinkedInPerson"));
+    expect(loadCorpusExchanges(TENANT, "gmail")[0].title).toContain("LinkedInPerson");
+  });
+
+  it("treats an absent platform as LinkedIn, exactly as before", () => {
+    writeFileSync(join(dir, "linkedin_successful_messages.md"), EXCHANGE("LinkedInPerson"));
+    expect(loadCorpusExchanges(TENANT)).toEqual(loadCorpusExchanges(TENANT, "linkedin"));
+  });
+
+  it("caches per FILE, so one platform's corpus never serves another", () => {
+    writeFileSync(join(dir, "linkedin_successful_messages.md"), EXCHANGE("LinkedInPerson"));
+    writeFileSync(join(dir, "gmail_successful_messages.md"), EXCHANGE("GmailPerson"));
+    // Warm the cache with LinkedIn first; Gmail must not hit that entry.
+    loadCorpusExchanges(TENANT, "linkedin");
+    expect(loadCorpusExchanges(TENANT, "gmail")[0].title).toContain("GmailPerson");
+  });
+
+  it("returns [] and never throws when nothing is on disk", () => {
+    expect(loadCorpusExchanges(TENANT, "gmail")).toEqual([]);
+    expect(loadCorpusExchanges("no-such-tenant-at-all")).toEqual([]);
+  });
+
+  it("reports a stable path even when no corpus exists", () => {
+    expect(corpusPath(TENANT, "gmail")).toContain("linkedin_successful_messages.md");
   });
 });

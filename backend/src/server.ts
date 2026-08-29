@@ -275,7 +275,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
   // contact, ranked against the SAME signal as ABOUT ME. Only gemini-cli could
   // reach the corpus before (it greps its sandbox copy); injecting the top few
   // gives every provider the same floor. Empty when the tenant has no corpus.
-  const examples = selectRelevantContext(loadCorpusExchanges(t), aboutSignal, {
+  const examples = selectRelevantContext(loadCorpusExchanges(t, ctx?.platform), aboutSignal, {
     max: MAX_FEWSHOT_EXAMPLES,
   }).map((e) => ({ title: e.title, body: e.body }));
 

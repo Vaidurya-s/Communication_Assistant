@@ -26,11 +26,27 @@ import { voiceDirFor } from "./voiceProfile.js";
 import type { RetrievableItem } from "./contextRetrieval.js";
 
 /**
- * The corpus filename. Deliberately the SAME file the gemini sandbox exposes
- * (`workspace.ts`) — one corpus, two delivery mechanisms, so the user maintains
- * a single file and every provider benefits from it.
+ * The default corpus filename. Deliberately the SAME file the gemini sandbox
+ * exposes (`workspace.ts`) — one corpus, two delivery mechanisms, so the user
+ * maintains a single file and every provider benefits from it.
  */
-const CORPUS_FILE = "linkedin_successful_messages.md";
+const DEFAULT_CORPUS_FILE = "linkedin_successful_messages.md";
+
+/**
+ * Per-platform corpus files. A LinkedIn DM and an email are different registers
+ * (see PLATFORM_REGISTER in prompt.ts), so showing email examples when drafting
+ * an email beats showing DM examples.
+ *
+ * The fallback is the LinkedIn file rather than nothing: a user who has only
+ * ever curated the original corpus should still get grounded examples on Gmail —
+ * imperfect-register examples beat none — until they build a Gmail corpus. The
+ * default install therefore behaves exactly as before.
+ */
+function corpusFileFor(platform?: string): string[] {
+  const p = (platform ?? "").toLowerCase();
+  if (!p || p === "linkedin") return [DEFAULT_CORPUS_FILE];
+  return [`${p}_successful_messages.md`, DEFAULT_CORPUS_FILE];
+}
 
 /** `type` stamped on every parsed item, so callers can tell these apart from context items. */
 const EXCHANGE_TYPE = "exchange";
@@ -39,7 +55,7 @@ export interface CorpusExchange extends RetrievableItem {
   type: typeof EXCHANGE_TYPE;
 }
 
-/** Cached parse, keyed by tenant. Invalidated on mtime+size change. */
+/** Cached parse, keyed by resolved file path. Invalidated on mtime+size change. */
 interface CacheEntry {
   mtimeMs: number;
   size: number;
@@ -47,9 +63,20 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 
-/** Absolute path to a tenant's corpus file. */
-export function corpusPath(tenantId: string = DEFAULT_TENANT): string {
-  return join(voiceDirFor(tenantId), CORPUS_FILE);
+/**
+ * Absolute path to the corpus a tenant should use for this platform: the
+ * platform-specific file if it exists, else the default LinkedIn one. Returns
+ * the default path even when nothing exists, so callers get a stable path to
+ * report or write to.
+ */
+export function corpusPath(tenantId: string = DEFAULT_TENANT, platform?: string): string {
+  const dir = voiceDirFor(tenantId);
+  const candidates = corpusFileFor(platform);
+  for (const name of candidates) {
+    const full = join(dir, name);
+    if (existsSync(full)) return full;
+  }
+  return join(dir, candidates[candidates.length - 1]);
 }
 
 /**
@@ -140,17 +167,22 @@ export function parseCorpus(markdown: string): CorpusExchange[] {
  * few-shot section is an enhancement, so its absence must degrade the prompt
  * silently rather than fail the draft.
  */
-export function loadCorpusExchanges(tenantId: string = DEFAULT_TENANT): CorpusExchange[] {
-  const path = corpusPath(tenantId);
+export function loadCorpusExchanges(
+  tenantId: string = DEFAULT_TENANT,
+  platform?: string,
+): CorpusExchange[] {
+  const path = corpusPath(tenantId, platform);
   if (!existsSync(path)) return [];
 
   try {
     const { mtimeMs, size } = statSync(path);
-    const hit = cache.get(tenantId);
+    // Keyed by resolved PATH, not tenant: one tenant can now have a LinkedIn and
+    // a Gmail corpus, and keying by tenant alone would serve one for the other.
+    const hit = cache.get(path);
     if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.items;
 
     const items = parseCorpus(readFileSync(path, "utf-8"));
-    cache.set(tenantId, { mtimeMs, size, items });
+    cache.set(path, { mtimeMs, size, items });
     return items;
   } catch {
     // Unreadable corpus (permissions, mid-write truncation) — same as absent.
@@ -158,8 +190,12 @@ export function loadCorpusExchanges(tenantId: string = DEFAULT_TENANT): CorpusEx
   }
 }
 
-/** Drop the cached parse. Called when a tenant's voice directory is rewritten. */
-export function resetCorpusCache(tenantId?: string): void {
-  if (tenantId) cache.delete(tenantId);
+/**
+ * Drop cached parses. Pass a resolved path (from `corpusPath`) to drop one file;
+ * pass nothing to clear everything. Called after a corpus is written, and when a
+ * tenant's voice directory is rewritten.
+ */
+export function resetCorpusCache(path?: string): void {
+  if (path) cache.delete(path);
   else cache.clear();
 }
