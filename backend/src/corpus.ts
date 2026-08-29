@@ -19,18 +19,34 @@
  * reads the file and parses it.
  */
 
-import { readFileSync, existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DEFAULT_TENANT } from "./tenant.js";
 import { voiceDirFor } from "./voiceProfile.js";
 import type { RetrievableItem } from "./contextRetrieval.js";
 
 /**
- * The corpus filename. Deliberately the SAME file the gemini sandbox exposes
- * (`workspace.ts`) — one corpus, two delivery mechanisms, so the user maintains
- * a single file and every provider benefits from it.
+ * The default corpus filename. Deliberately the SAME file the gemini sandbox
+ * exposes (`workspace.ts`) — one corpus, two delivery mechanisms, so the user
+ * maintains a single file and every provider benefits from it.
  */
-const CORPUS_FILE = "linkedin_successful_messages.md";
+const DEFAULT_CORPUS_FILE = "linkedin_successful_messages.md";
+
+/**
+ * Per-platform corpus files. A LinkedIn DM and an email are different registers
+ * (see PLATFORM_REGISTER in prompt.ts), so showing email examples when drafting
+ * an email beats showing DM examples.
+ *
+ * The fallback is the LinkedIn file rather than nothing: a user who has only
+ * ever curated the original corpus should still get grounded examples on Gmail —
+ * imperfect-register examples beat none — until they build a Gmail corpus. The
+ * default install therefore behaves exactly as before.
+ */
+function corpusFileFor(platform?: string): string[] {
+  const p = (platform ?? "").toLowerCase();
+  if (!p || p === "linkedin") return [DEFAULT_CORPUS_FILE];
+  return [`${p}_successful_messages.md`, DEFAULT_CORPUS_FILE];
+}
 
 /** `type` stamped on every parsed item, so callers can tell these apart from context items. */
 const EXCHANGE_TYPE = "exchange";
@@ -39,7 +55,7 @@ export interface CorpusExchange extends RetrievableItem {
   type: typeof EXCHANGE_TYPE;
 }
 
-/** Cached parse, keyed by tenant. Invalidated on mtime+size change. */
+/** Cached parse, keyed by resolved file path. Invalidated on mtime+size change. */
 interface CacheEntry {
   mtimeMs: number;
   size: number;
@@ -47,9 +63,33 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 
-/** Absolute path to a tenant's corpus file. */
-export function corpusPath(tenantId: string = DEFAULT_TENANT): string {
-  return join(voiceDirFor(tenantId), CORPUS_FILE);
+/**
+ * Absolute path to the corpus a tenant should use for this platform: the
+ * platform-specific file if it exists, else the default LinkedIn one. Returns
+ * the default path even when nothing exists, so callers get a stable path to
+ * report or write to.
+ */
+export function corpusPath(tenantId: string = DEFAULT_TENANT, platform?: string): string {
+  const dir = voiceDirFor(tenantId);
+  const candidates = corpusFileFor(platform);
+  for (const name of candidates) {
+    const full = join(dir, name);
+    if (existsSync(full)) return full;
+  }
+  return join(dir, candidates[candidates.length - 1]);
+}
+
+/**
+ * Where a NEW exchange for this platform should be written.
+ *
+ * Deliberately different from `corpusPath`: reading falls back to the LinkedIn
+ * corpus so a user with only that file still gets examples everywhere, but
+ * writing must never follow that fallback — a Gmail exchange appended into
+ * `linkedin_successful_messages.md` would pollute the LinkedIn corpus with the
+ * wrong register and could never be separated out again.
+ */
+export function corpusWritePath(tenantId: string = DEFAULT_TENANT, platform?: string): string {
+  return join(voiceDirFor(tenantId), corpusFileFor(platform)[0]);
 }
 
 /**
@@ -123,8 +163,13 @@ export function parseCorpus(markdown: string): CorpusExchange[] {
       flush();
       continue;
     }
-    // Section separators are formatting, not content.
-    if (title !== null && !/^---+\s*$/.test(line)) body.push(line);
+    // Section separators and HTML comments are formatting, not content. The
+    // comment case matters: the managed reply-rate block below is delimited by
+    // them, and without this its opening marker would land in the body of
+    // whatever section precedes it.
+    if (title !== null && !/^---+\s*$/.test(line) && !/^\s*<!--.*-->\s*$/.test(line)) {
+      body.push(line);
+    }
   }
   flush();
 
@@ -140,17 +185,22 @@ export function parseCorpus(markdown: string): CorpusExchange[] {
  * few-shot section is an enhancement, so its absence must degrade the prompt
  * silently rather than fail the draft.
  */
-export function loadCorpusExchanges(tenantId: string = DEFAULT_TENANT): CorpusExchange[] {
-  const path = corpusPath(tenantId);
+export function loadCorpusExchanges(
+  tenantId: string = DEFAULT_TENANT,
+  platform?: string,
+): CorpusExchange[] {
+  const path = corpusPath(tenantId, platform);
   if (!existsSync(path)) return [];
 
   try {
     const { mtimeMs, size } = statSync(path);
-    const hit = cache.get(tenantId);
+    // Keyed by resolved PATH, not tenant: one tenant can now have a LinkedIn and
+    // a Gmail corpus, and keying by tenant alone would serve one for the other.
+    const hit = cache.get(path);
     if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.items;
 
     const items = parseCorpus(readFileSync(path, "utf-8"));
-    cache.set(tenantId, { mtimeMs, size, items });
+    cache.set(path, { mtimeMs, size, items });
     return items;
   } catch {
     // Unreadable corpus (permissions, mid-write truncation) — same as absent.
@@ -158,8 +208,178 @@ export function loadCorpusExchanges(tenantId: string = DEFAULT_TENANT): CorpusEx
   }
 }
 
-/** Drop the cached parse. Called when a tenant's voice directory is rewritten. */
-export function resetCorpusCache(tenantId?: string): void {
-  if (tenantId) cache.delete(tenantId);
+/**
+ * Drop cached parses. Pass a resolved path (from `corpusPath`) to drop one file;
+ * pass nothing to clear everything. Called after a corpus is written, and when a
+ * tenant's voice directory is rewritten.
+ */
+export function resetCorpusCache(path?: string): void {
+  if (path) cache.delete(path);
   else cache.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Writing: closing the loop
+// ---------------------------------------------------------------------------
+//
+// Until now this corpus was read by four subsystems (the few-shot injection
+// here, voiceDistill, initVoice, voiceEval) and written by none — a hand-typed
+// file that shaped every draft and quietly went stale.
+//
+// TRUST: appends are USER-REVIEWED, never automatic. `prompt.ts` injects these
+// exchanges outside the untrusted boundary, and that is defensible only because
+// a human looked at the text before it was written. The overlay shows the
+// exchange in an editable box and the user presses Add — the same gate shape as
+// the memory card's Save. Do not add a code path that appends without it.
+
+/** One exchange turn, as reviewed by the user. */
+export interface ExchangeTurn {
+  isSelf: boolean;
+  text: string;
+}
+
+export interface NewExchange {
+  /** The other party's display name. */
+  contact: string;
+  /** Short parenthetical for the heading, e.g. "cold outreach about PQC". */
+  context?: string;
+  turns: ExchangeTurn[];
+  /** Optional grouping label, used for the per-tag reply rates. */
+  tag?: string;
+}
+
+const CORPUS_HEADER = [
+  "# Successful messages",
+  "",
+  "Real exchanges of mine that got replies. `corpus.ts` retrieves the most",
+  "on-topic few of these into each draft, and `init-voice` distills them.",
+  "Entries added from the overlay are reviewed before they land here.",
+  "",
+].join("\n");
+
+const STATS_OPEN = "<!-- comms:auto-stats -->";
+const STATS_CLOSE = "<!-- /comms:auto-stats -->";
+
+/** Render one exchange in exactly the shape `parseCorpus` reads back. */
+function renderExchange(entry: NewExchange, nowIso: string): string {
+  const contact = entry.contact.replace(/\s+/g, " ").trim() || "Unknown";
+  const context = (entry.context ?? "").replace(/\s+/g, " ").trim();
+  const day = nowIso.slice(0, 10);
+
+  const lines: string[] = ["", `## ${contact} (${context ? `${context}, ` : ""}added ${day})`, ""];
+  if (entry.tag) lines.push(`- tags: ${entry.tag.replace(/\s+/g, " ").trim()}`, "");
+
+  for (const turn of entry.turns) {
+    const body = turn.text.replace(/\r/g, "").trim();
+    if (!body) continue;
+    lines.push(turn.isSelf ? `**Me → ${contact}:**` : `**${contact} → Me:**`);
+    // Blockquote every line so a multi-paragraph turn stays inside that turn,
+    // and so the section satisfies isTranscribedExchange on the quotes alone.
+    for (const l of body.split("\n")) lines.push(`> ${l}`);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Did both parties speak in this section? That is the reply test.
+ *
+ * Deliberately name-agnostic: it counts DISTINCT senders on the attribution
+ * lines rather than looking for the user's own name. The hand-written half of
+ * the corpus attributes turns as "Vaidurya → Chitra" while appended entries use
+ * "Me → Chitra", and a rule keyed to either would silently miscount the other.
+ */
+function gotReply(body: string): boolean {
+  const senders = new Set<string>();
+  for (const line of body.split("\n")) {
+    const m = /^\s*\*\*\s*([^→*]+?)\s*→/.exec(line);
+    if (m) senders.add(m[1].trim().toLowerCase());
+  }
+  return senders.size >= 2;
+}
+
+function tagOf(body: string): string | null {
+  const m = /^\s*-\s*tags:\s*(.+)$/im.exec(body);
+  return m ? m[1].trim() : null;
+}
+
+/** Strip the managed block, leaving the user's own prose untouched. */
+function stripStats(markdown: string): string {
+  const open = markdown.indexOf(STATS_OPEN);
+  if (open === -1) return markdown;
+  const close = markdown.indexOf(STATS_CLOSE, open);
+  if (close === -1) return markdown;
+  return markdown.slice(0, open) + markdown.slice(close + STATS_CLOSE.length);
+}
+
+/**
+ * Recompute the reply-rate block from the corpus itself.
+ *
+ * These numbers used to be tallied by hand in the file and read by nothing, so
+ * they drifted the moment anything was added. The block is delimited by HTML
+ * comments and rewritten wholesale; everything outside the markers is the
+ * user's and is never touched.
+ */
+export function renderStats(markdown: string): string {
+  const items = parseCorpus(markdown);
+  const total = items.length;
+  const replied = items.filter((i) => gotReply(i.body)).length;
+
+  const byTag = new Map<string, { n: number; replied: number }>();
+  for (const item of items) {
+    const tag = tagOf(item.body);
+    if (!tag) continue;
+    const e = byTag.get(tag) ?? { n: 0, replied: 0 };
+    e.n += 1;
+    if (gotReply(item.body)) e.replied += 1;
+    byTag.set(tag, e);
+  }
+
+  const pct = (a: number, b: number) => (b === 0 ? "—" : `${Math.round((a / b) * 100)}%`);
+  const lines = [
+    STATS_OPEN,
+    "",
+    "## Reply rates (computed)",
+    "",
+    `- overall: ${replied}/${total} exchanges got a reply (${pct(replied, total)})`,
+  ];
+  for (const [tag, e] of Array.from(byTag.entries()).sort((a, b) => b[1].n - a[1].n)) {
+    lines.push(`- \`${tag}\`: ${e.replied}/${e.n} (${pct(e.replied, e.n)})`);
+  }
+  lines.push(
+    "",
+    "_Generated by Comms Assistant. Edits inside this block are overwritten;_",
+    "_anything outside the markers is yours and is never touched._",
+    "",
+    STATS_CLOSE,
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Append a user-reviewed exchange and refresh the computed stats.
+ *
+ * Returns the path written, so the caller can report it.
+ */
+export function appendExchange(
+  tenantId: string = DEFAULT_TENANT,
+  entry: NewExchange,
+  nowIso: string = new Date().toISOString(),
+  platform?: string,
+): string {
+  if (!entry.contact?.trim()) throw new Error("contact is required");
+  if (!entry.turns?.some((t) => t.text?.trim())) {
+    throw new Error("at least one non-empty turn is required");
+  }
+
+  const path = corpusWritePath(tenantId, platform);
+  mkdirSync(dirname(path), { recursive: true });
+
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : CORPUS_HEADER;
+  const body = stripStats(existing).replace(/\s+$/, "");
+  const next = `${body}\n${renderExchange(entry, nowIso)}`;
+  writeFileSync(path, `${next}\n${renderStats(next)}\n`, "utf-8");
+
+  resetCorpusCache(path);
+  return path;
 }

@@ -27,6 +27,12 @@ export interface ConversationContext {
   participants: Participant[];
   messages: Message[];
   current_draft: string;
+  /**
+   * Email subject line, when the platform has one (Gmail). Attacker-controlled
+   * like every other extracted string — the backend renders it INSIDE the
+   * untrusted boundary. Absent on platforms without subjects (LinkedIn DMs).
+   */
+  subject?: string;
   page_metadata: PageMetadata;
   /**
    * URL of the other participant's profile, when discoverable from the thread

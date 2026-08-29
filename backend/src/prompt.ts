@@ -27,6 +27,7 @@ interface IncomingContext {
   participants?: Array<{ name: string; role?: string }>;
   messages?: IncomingMessage[];
   current_draft?: string;
+  subject?: string;
   contact_profile?: IncomingContactProfile | null;
 }
 
@@ -65,11 +66,14 @@ export interface BuildPromptInput {
    * a toolless provider (anthropic, openai-compat) can see the corpus at all —
    * gemini-cli greps it directly from its sandbox.
    *
-   * NOTE on trust: these come from `voice_profile/linkedin_successful_messages.md`,
-   * a file the user hand-curates on their own machine — the same trust tier as
-   * the voice profile itself. So they're injected OUTSIDE the untrusted
-   * boundary. That holds ONLY while the corpus stays hand-curated. If we ever
-   * auto-ingest live threads into it, the contact's half of every exchange
+   * NOTE on trust: these come from the user's own corpus under `voice_profile/`
+   * — the same trust tier as the voice profile itself — so they're injected
+   * OUTSIDE the untrusted boundary. Entries get there one of two ways, and BOTH
+   * keep a human in the loop: the user hand-writes the file, or they add an
+   * exchange from the overlay after reviewing and editing the text in a box
+   * (corpus.ts `appendExchange`, the same gate shape as the memory card's Save).
+   * That review is what this trust rests on. If a code path is ever added that
+   * auto-ingests live threads without it, the contact's half of every exchange
    * becomes attacker-controlled and this section must move INSIDE the
    * UNTRUSTED_CONVERSATION block.
    */
@@ -100,6 +104,37 @@ const MAX_EXAMPLE_CHARS = 4000;
 
 const BASE_RULES =
   "Reply with ONLY the message text — no preamble, no quotes, no labels, no commentary about your process.";
+
+/**
+ * Per-platform register.
+ *
+ * A LinkedIn DM and an email are not the same kind of writing, and until now
+ * both got the LinkedIn rules: `platform` reached the untrusted JSON payload but
+ * never the instruction. The result was email drafted like chat — no greeting,
+ * no sign-off, one block of text, and no awareness of the subject line the
+ * extractor had already captured.
+ *
+ * LinkedIn maps to the empty string ON PURPOSE: its behaviour is the one the
+ * voice profile was tuned against, so it must stay byte-identical to what it was
+ * before this existed. Anything unrecognised falls back to the same.
+ */
+const PLATFORM_REGISTER: Record<string, string> = {
+  linkedin: "",
+  gmail:
+    `This is EMAIL, not a chat message — write in the register email expects. ` +
+    `Open with a real greeting line addressed to them and close with a sign-off ` +
+    `in my usual style. Use short paragraphs separated by blank lines rather than ` +
+    `one unbroken block. The thread's subject is in the "subject" field of the ` +
+    `UNTRUSTED_CONVERSATION block — answer what it actually asks, but do NOT ` +
+    `restate it and do NOT write a Subject: line, since this is a reply on an ` +
+    `existing thread. Avoid the clipped, abrupt phrasing that reads fine in a DM ` +
+    `and reads brusque in an inbox.`,
+};
+
+/** The register clause for a platform, or "" when there's nothing extra to say. */
+function registerFor(platform: string): string {
+  return PLATFORM_REGISTER[platform.toLowerCase()] ?? "";
+}
 
 function instructionFor(mode: Mode, seed: string, draft: string): string {
   switch (mode) {
@@ -145,6 +180,7 @@ function resolveMode(mode: Mode, seedText: string, draft: string): Mode {
  *
  * Fields covered (all attacker-controlled because they come from LinkedIn's DOM):
  *   - thread_title (a participant's display name)
+ *   - subject (the email subject line — written by whoever started the thread)
  *   - participants[].name
  *   - messages[].sender
  *   - messages[].text
@@ -160,6 +196,7 @@ function resolveMode(mode: Mode, seedText: string, draft: string): Mode {
 function untrustedConversationBlock(args: {
   platform: string;
   thread_title: string;
+  subject: string | null;
   messages: Array<{ sender: string; isSelf: boolean; timestamp?: string; text: string }>;
   current_draft: string;
   contact_profile: IncomingContactProfile | null;
@@ -167,6 +204,7 @@ function untrustedConversationBlock(args: {
   const payload = {
     platform: args.platform,
     thread_title: args.thread_title,
+    subject: args.subject,
     messages: args.messages.map((m) => ({
       sender: m.sender,
       isSelf: m.isSelf,
@@ -314,6 +352,7 @@ export function buildPrompt(input: BuildPromptInput): {
   const untrustedBlock = untrustedConversationBlock({
     platform,
     thread_title: title,
+    subject: (ctx.subject ?? "").trim() || null,
     messages,
     current_draft: draft,
     contact_profile: ctx.contact_profile ?? null,
@@ -336,6 +375,13 @@ export function buildPrompt(input: BuildPromptInput): {
   const context = `${staticPrefix}\n\n${variable}`;
 
   let instruction = instructionFor(resolvedMode, seed, draft);
+
+  // Platform register rides on the TASK directive, never in staticPrefix — the
+  // prefix must stay byte-stable per tenant or the anthropic cache never hits.
+  const register = registerFor(platform);
+  if (register) instruction += `
+
+${register}`;
 
   // "Another take": diverge from a draft the user is already looking at. Named
   // explicitly rather than folded into the steer so the model sees the exact

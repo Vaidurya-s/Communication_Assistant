@@ -216,6 +216,9 @@ export async function extractGmailContext(): Promise<ExtractionResult> {
     participants,
     messages,
     current_draft: draft,
+    // The subject was already extracted for the title fallback above; carry it
+    // through so the backend can write a reply that actually answers it.
+    subject,
     page_metadata: {
       url: window.location.href,
       title: document.title,
