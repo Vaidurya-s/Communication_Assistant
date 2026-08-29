@@ -222,8 +222,68 @@ async function loadOverview() {
     </li>`)
     .join("");
   $$("#checklist .check[data-goto]").forEach((li) => li.addEventListener("click", () => show(li.dataset.goto)));
+  void loadDataHealth();
 }
 $("#refreshOverview").addEventListener("click", loadOverview);
+
+/**
+ * Data health — the detector this project didn't have.
+ *
+ * Two silent failures ran for months with nothing surfacing them: profile
+ * enrichment quietly stopped working when LinkedIn changed its layout, and a
+ * contact name was stored with scraped interface text in it. Both were found by
+ * accident. A row here would have shown either within a day.
+ *
+ * Renders nothing at all when everything is clean — a health panel that is
+ * always on screen stops being read.
+ */
+async function loadDataHealth() {
+  const box = $("#healthPanel");
+  if (!box) return;
+  let h;
+  try { h = await api("/memory/health"); } catch { box.innerHTML = ""; return; }
+
+  const issues = [];
+  if (h.no_enrichment?.count) {
+    issues.push({
+      label: `${h.no_enrichment.count} of ${h.contacts} contacts have no profile enrichment`,
+      hint: h.no_enrichment.count > h.contacts / 2
+        ? "That is high enough to mean extraction is broken, not just unvisited profiles. Open a contact's LinkedIn profile and check the overlay's debug pane."
+        : "Enrichment fills in when you open a contact's profile.",
+      sample: h.no_enrichment.sample,
+    });
+  }
+  if (h.malformed_names?.count) {
+    issues.push({
+      label: `${h.malformed_names.count} contact name(s) contain scraped interface text`,
+      hint: "New writes are cleaned automatically; these are older rows. Restart the backend to run the cleanup migration.",
+      sample: h.malformed_names.sample,
+    });
+  }
+  if (h.unconfirmed_notes) {
+    issues.push({
+      label: `${h.unconfirmed_notes} proposed note(s) waiting on you`,
+      hint: "Unconfirmed notes are never used in a draft.",
+      sample: [],
+    });
+  }
+
+  if (issues.length === 0) { box.innerHTML = ""; return; }
+
+  box.innerHTML = `<div class="panel">
+    <div class="panel-head"><h2>Data health <span class="muted small">(${issues.length})</span></h2><span class="panel-kick">Diagnostics</span></div>
+    <p class="muted">Problems that would otherwise stay silent.</p>
+    <ul class="checklist">
+      ${issues.map((i) => `<li class="check todo">
+        <span class="check-ico">!</span>
+        <div>
+          <div class="check-title">${esc(i.label)}</div>
+          <div class="check-hint">${esc(i.hint)}${i.sample.length ? ` — e.g. ${esc(i.sample.slice(0, 3).join(", "))}` : ""}</div>
+        </div>
+      </li>`).join("")}
+    </ul>
+  </div>`;
+}
 
 // ---------------------------------------------------------------- Contacts
 let contacts = [];

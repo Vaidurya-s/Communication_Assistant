@@ -1,4 +1,5 @@
 import { getDb } from "./db.js";
+import { sanitizeContactName } from "./contactName.js";
 import type { IncomingContactProfile } from "./prompt.js";
 
 /**
@@ -116,7 +117,11 @@ function rowToContact(row: ContactRow): Contact {
   };
 }
 
-export function upsertContact(tenantId: string, name: string, threadUrl: string | null): void {
+export function upsertContact(tenantId: string, rawName: string, threadUrl: string | null): void {
+  // Sanitize HERE, at the write boundary: `name` is the composite PK and the FK
+  // every note hangs off, so a polluted value doesn't just look wrong, it forks
+  // the contact and strands its notes on the wrong row.
+  const name = sanitizeContactName(rawName);
   if (!name) return;
   const now = new Date().toISOString();
   const db = getDb();
