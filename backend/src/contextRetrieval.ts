@@ -147,3 +147,35 @@ export function selectRelevantContext<T extends RetrievableItem>(
 
   return ranked.slice(0, max).map((r) => r.item);
 }
+
+export interface AboutMeSelectOptions {
+  /** Max PROJECT items to keep (relevance-ranked). Default 5. */
+  projectMax?: number;
+}
+
+const DEFAULT_PROJECT_MAX = 5;
+
+/**
+ * Pick the ABOUT ME items to inject for a single draft.
+ *
+ * The two kinds of item scale very differently. Foundational types — bio,
+ * achievement, looking_for — are few and describe who the user IS, so they're
+ * ALWAYS kept. `project` items, by contrast, can accumulate into the dozens
+ * (a full projects index); dumping them all bloats every prompt and buries the
+ * on-topic ones. So only projects are relevance-ranked against the signal and
+ * capped to `projectMax`.
+ *
+ * Returns foundational items first (original order), then the top projects.
+ * Pure — delegates project ranking to `selectRelevantContext`.
+ */
+export function selectAboutMeContext<T extends RetrievableItem>(
+  items: T[],
+  signalText: string,
+  opts: AboutMeSelectOptions = {},
+): T[] {
+  const projectMax = opts.projectMax ?? DEFAULT_PROJECT_MAX;
+  const projects = items.filter((i) => i.type === "project");
+  const others = items.filter((i) => i.type !== "project");
+  const topProjects = selectRelevantContext(projects, signalText, { max: projectMax });
+  return [...others, ...topProjects];
+}

@@ -63,7 +63,7 @@ import { distill, distillSection } from "./voiceDistill.js";
 import { computeStrength } from "./voiceStrength.js";
 import { lintProfileText } from "./voiceLint.js";
 import { INTERVIEW_QUESTIONS, applyInterview } from "./interview.js";
-import { selectRelevantContext } from "./contextRetrieval.js";
+import { selectAboutMeContext } from "./contextRetrieval.js";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "suggest",
@@ -239,10 +239,11 @@ app.post("/analyze", async (req: Request, res: Response) => {
     }
   }
 
-  // Trusted "ABOUT ME" substance, but RANKED to this contact: when the user has
-  // many context items, inject only the few most relevant (term overlap with the
-  // contact's profile + recent messages) rather than dumping all of them. With
-  // only a handful of items selectRelevantContext returns them all.
+  // Trusted "ABOUT ME" substance, but RANKED to this contact: foundational items
+  // (bio/achievement/looking_for) are always kept, while PROJECT items — which
+  // can number in the dozens — are trimmed to the few most relevant by term
+  // overlap with the contact's profile + recent messages, rather than dumping all
+  // of them (bloat + dilution). See selectAboutMeContext.
   const aboutSignal = [
     ctx?.contact_profile?.headline,
     ctx?.contact_profile?.role,
@@ -254,7 +255,7 @@ app.post("/analyze", async (req: Request, res: Response) => {
   ]
     .filter(Boolean)
     .join(" ");
-  const aboutMe = selectRelevantContext(getConfirmedContext(t), aboutSignal).map((c) => ({
+  const aboutMe = selectAboutMeContext(getConfirmedContext(t), aboutSignal).map((c) => ({
     type: c.type,
     title: c.title,
     body: c.body,
