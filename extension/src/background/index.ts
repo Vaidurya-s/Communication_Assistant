@@ -9,6 +9,7 @@ import type { ConversationContext } from "../shared/types";
 import type { ExtractionDiagnostics } from "../content/diagnostics";
 import { isOverlayUrl, isProfileUrl } from "../platforms/urls";
 import { backendFetch } from "../shared/backend";
+import { badgeTextFor, parseFollowups } from "../shared/followups";
 import {
   getOrFetchProfile,
   getProfileForUrl,
@@ -661,3 +662,45 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, sender, sendResponse)
 
   return false;
 });
+
+// --- Follow-up badge --------------------------------------------------------
+//
+// `suggested_followup_at` has always been stored and shown in the dashboard,
+// but nothing noticed when a date arrived — a follow-up only reached you if you
+// remembered to go and look. An hourly alarm polls the backend and puts the due
+// count on the toolbar icon.
+//
+// A badge, not a notification: this is an ambient count you glance at, and a
+// desktop notification would be a new interrupting surface for something that
+// isn't urgent to the minute.
+
+const FOLLOWUP_ALARM = "comms-followups";
+const FOLLOWUP_PERIOD_MINUTES = 60;
+
+/**
+ * Refresh the badge. Fails SILENTLY and leaves the badge alone on any error:
+ * the backend is a local server the user may simply not have running, and a
+ * background poll must never surface an error, clear a good count because of one
+ * failed fetch, or trigger a retry.
+ */
+async function refreshFollowupBadge(): Promise<void> {
+  try {
+    const res = await backendFetch("/memory/followups", { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return;
+    const due = parseFollowups(await res.json());
+    await chrome.action.setBadgeText({ text: badgeTextFor(due.length) });
+    await chrome.action.setBadgeBackgroundColor({ color: "#b45309" });
+  } catch {
+    /* backend down or slow — leave whatever the badge already shows */
+  }
+}
+
+chrome.alarms.create(FOLLOWUP_ALARM, { periodInMinutes: FOLLOWUP_PERIOD_MINUTES });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === FOLLOWUP_ALARM) void refreshFollowupBadge();
+});
+
+// The service worker is torn down and revived constantly, so also refresh on
+// wake — waiting up to an hour for the first alarm would leave the badge stale
+// through most of a session.
+void refreshFollowupBadge();

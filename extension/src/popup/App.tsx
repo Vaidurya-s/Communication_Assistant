@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { describeDue, parseFollowups, type DueFollowup } from "../shared/followups";
+import { backendFetch } from "../shared/backend";
 import {
   getSelfNameSetting,
   setSelfNameSetting,
@@ -20,6 +22,8 @@ export function App() {
   const [editMining, setEditMining] = useState(false);
   const [activeTabUrl, setActiveTabUrl] = useState<string>("");
   const [openStatus, setOpenStatus] = useState<string>("");
+  // Follow-ups that are due — the destination the toolbar badge points at.
+  const [followups, setFollowups] = useState<DueFollowup[]>([]);
 
   const [backendOrigin, setBackendOrigin] = useState<string>(DEFAULT_ORIGIN);
   const [backendToken, setBackendToken] = useState<string>("");
@@ -38,6 +42,19 @@ export function App() {
   const [composeReply, setComposeReply] = useState<string>("");
   const [composeError, setComposeError] = useState<string>("");
   const [composeCopied, setComposeCopied] = useState(false);
+
+  useEffect(() => {
+    // Best-effort: the backend is a local server that may not be running, and a
+    // missing follow-up list must never break the settings popup.
+    void (async () => {
+      try {
+        const res = await backendFetch("/memory/followups", { signal: AbortSignal.timeout(4000) });
+        if (res.ok) setFollowups(parseFollowups(await res.json()));
+      } catch {
+        /* backend down — just show nothing */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     getSelfNameSetting().then(setSelfName);
@@ -173,6 +190,27 @@ export function App() {
         Open the panel
       </button>
       {openStatus && <div className="pop-substatus">{openStatus}</div>}
+
+      {followups.length > 0 && (
+        <>
+          <hr className="pop-divider" />
+          <label className="pop-label">
+            Follow-ups due <span className="pop-hint">({followups.length})</span>
+          </label>
+          {followups.slice(0, 8).map((f) => (
+            <div key={f.name} className="pop-substatus">
+              {f.thread_url ? (
+                <a href={f.thread_url} target="_blank" rel="noreferrer">
+                  {f.name}
+                </a>
+              ) : (
+                f.name
+              )}{" "}
+              — {describeDue(f)}
+            </div>
+          ))}
+        </>
+      )}
 
       <hr className="pop-divider" />
 

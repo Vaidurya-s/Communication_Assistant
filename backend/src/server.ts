@@ -43,6 +43,7 @@ import { tenantOf, DEFAULT_TENANT } from "./tenant.js";
 import { resolveTenantByToken } from "./auth.js";
 import { exportTenant, purgeTenant } from "./tenantData.js";
 import { checkRate } from "./rateLimit.js";
+import { dueFollowups } from "./followups.js";
 import {
   addContextItem,
   confirmContextItem,
@@ -590,6 +591,20 @@ app.post("/snapshots", (req: Request, res: Response) => {
 app.get("/snapshots", (req: Request, res: Response) => {
   try {
     res.json({ snapshots: listSnapshots(tenant(req)) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Follow-ups that are actually due ---------------------------------------
+//
+// The dates have always been stored; nothing ever noticed when one arrived.
+// The extension polls this on an alarm and turns the count into a badge, so a
+// follow-up reaches you without your having to remember to go and look.
+app.get("/memory/followups", (req: Request, res: Response) => {
+  try {
+    const due = dueFollowups(getAllContacts(tenant(req)), new Date().toISOString());
+    res.json({ followups: due, count: due.length });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
