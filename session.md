@@ -3,157 +3,77 @@
 A running handoff doc. Read this first when you come back; it tells you where things are and how to resume. Pairs with `CLAUDE.md` (architecture reference) — this file is the *current state*, that one is the *durable map*.
 
 ---
-## Branch cleanup + the four remaining feature tracks (2026-08-29)
+## Four gaps found while shipping Track C (2026-08-30)
 
-Cleared the branch backlog and shipped everything still open on the roadmap.
-**Six branches are on the remote awaiting review.** `gh` was not authenticated,
-so the PRs still need opening — run `gh auth login`, then open one per branch.
+All six branches from the previous session were merged to `master` and deleted;
+`master` is now the only branch and everything below is on it. Working through
+Track C surfaced four gaps that were on no roadmap, each verified against the
+running system rather than inferred.
 
-**Branch hygiene.** Five local branches were already merged into `master` and
-were deleted; `feat/cold-open-first-message` in particular was a byte-identical
-duplicate of `612c3d6` (same `git patch-id`), not pending work. Two stale remote
-branches (`feat/structured-feedback`, `feat/voice-and-perf`) were deleted too.
-The demo render (`Communication_Assistant*.mp4/.srt`, 38 MB) is now gitignored;
-`CLAUDE.md`, `session.md`, `VIDEO.md` and the report artifacts are tracked, with
-the four architecture diagrams renamed from their camera-roll filenames.
+**Per-platform register.** `instructionFor` switched on mode only — `platform`
+reached the untrusted JSON payload but never the instruction — so Gmail was
+drafted with LinkedIn DM rules. Worse, `gmail.ts` had been extracting the
+subject line all along and dropping it into a thread-title fallback. Both are
+fixed; the subject renders *inside* the untrusted fence, since whoever started
+the thread wrote it. LinkedIn maps to the empty register on purpose and a test
+asserts its instruction is byte-identical to before. The corpus is
+platform-aware too (`<platform>_successful_messages.md`, falling back to the
+LinkedIn file), which is what lets a Gmail corpus exist.
 
-**Branches on the remote.** The last four stack in this order — each edits the
-same `server.ts` / `prompt.ts` regions, so merge them in sequence:
+**The corpus loop.** The corpus was read by four subsystems and written by none.
+The overlay can now add an exchange that got a reply, prefilled from the thread,
+and reply rates are computed into a block delimited by HTML comments — the
+hand-tallied `## Reply rates by template` section is left untouched beside it.
+Trust: this is a **user-reviewed** append, never automatic, and `prompt.ts`'s
+NOTE was rewritten to say so; that review is what lets these examples stay
+outside the untrusted boundary.
 
-| Branch | What | Base |
-|---|---|---|
-| `fix/extraction-render-race` | The 4 render-race commits, previously unpushed | master |
-| `fix/linkedin-profile-selectors` | Profile extraction vs. the server-driven layout | master |
-| `feat/about-me-project-cap` | ABOUT ME project cap + the docs commit | master |
-| `feat/few-shot-grounding` | C2 | ↑ |
-| `feat/reply-variations` | C3 | ↑ |
-| `feat/cross-conversation-memory` | C4 | ↑ |
+**Follow-ups fire.** There was no `chrome.alarms` code and no permission for it,
+so a follow-up only reached you if you went looking. Against the live database
+that meant **11 due, the oldest 107 days overdue**. An hourly alarm now polls
+`GET /memory/followups` and badges the toolbar icon; the popup lists them with
+thread links. Badge, not notification — it's an ambient count, not an interrupt.
 
-**C2 — few-shot grounding** (`backend/src/corpus.ts`). Only `gemini-cli` could
-reach `linkedin_successful_messages.md`; every toolless provider (anthropic,
-openai-compat — now the default) got nothing. The two most on-topic exchanges
-are now injected per contact, ranked with the *existing* `selectRelevantContext`.
-Two things the real corpus forced: it interleaves genuine exchanges with the
-user's own distilled analysis ("Punctuation quirks"), so `parseCorpus` keeps only
-sections that transcribe a message (20 of 30); and the section renders in the
-VARIABLE remainder, never `staticPrefix`, or the anthropic cache prefix would
-change on every request. A test pins that.
+**Contact data health.** `upsertContact` validated nothing. A v2 migration
+cleans names written before `sanitizeContactName` existed — merging rather than
+clobbering when a cleaned name collides with an existing row — and
+`GET /memory/health` plus an Overview card make the rot visible. It renders
+nothing when everything is clean.
 
-**LinkedIn profile selectors.** LinkedIn moved profiles to a **server-driven
-UI**. Verified live: no `<h1>`, no `#about`/`#experience` anchors, no `og:` meta
-or JSON-LD on the logged-in SPA, no `.pvs-list__item--line-separated`, and zero
-`span[aria-hidden="true"]` duplication — every hook the readers used. What it
-*does* give is a stable semantic card id,
-`com.linkedin.sdui.profile.card.ref<opaque>About`, which `getSectionRoot` now
-tries first. The top card is ~10 levels of anonymous div, so identity fields are
-read by anchoring on the name heading and taking only its DIRECT-CHILD `<p>`
-siblings — that is what separates the headline from the "Verify in 2 minutes"
-promo and four upsells. Location is found via the "Contact info" landmark. The
-chains moved into `content/selectors.ts` (they had rotted precisely because
-`profile.ts` inlined its own, against what CLAUDE.md says). Verified on the real
-page: name, headline, company, location, about and skills all extract;
-previously only name did.
+### Bugs caught by the work itself
 
-- **Not observed:** Experience/Education entry markup — the profile available for
-  capture has none of those sections. Those readers depend only on what every
-  layout shares, and `profileExtractionGaps()` plus a console warning now fire
-  instead of returning an empty shell in silence. Capture a real one next time
-  you view a filled-in profile.
+- `corpusPath` falls back to the LinkedIn corpus when a platform has none, which
+  is right for reading and wrong for writing: a Gmail exchange would have been
+  appended into `linkedin_successful_messages.md` and could never be separated
+  out. Writing goes through `corpusWritePath`, which never follows the fallback.
+- The corpus cache was keyed by tenant. With two corpus files per tenant it
+  would serve LinkedIn examples for a Gmail draft. Now keyed by resolved path.
+- Bumping the shared `SCHEMA_VERSION` made the v1 migration re-run and stamp 2,
+  silently skipping the v2 cleanup on exactly the databases that needed it. Each
+  migration now gates on and stamps its **own** version.
+- The name rename hit a FOREIGN KEY failure — no ordering satisfies the
+  constraint mid-rename — so FK enforcement toggles off around the transaction,
+  as `migrateToCompositePk` already did.
 
-**C3 — "Another take".** A second draft rendered *beside* the first (Regenerate
-replaces it), generated on demand so the fast streaming first draft is never
-slowed by a speculative second call. `variation_of` is a first-class trusted
-field, outside the untrusted fence. Picking either draft posts an implicit 👍 via
-the existing `/feedback` route. The prefetch cache needed a guard — without it a
-variation request would be served the very draft the user wanted an alternative
-to.
+### Still open
 
-**C4 — cross-conversation patterns** (`backend/src/memoryPatterns.ts`, pure).
-`GET /memory/patterns` is READ-ONLY; adopting a proposal goes through the
-existing gates (`POST /context`, `POST /memory/notes/manual`), so no new trusted
-channel is created. Real data taught two lessons, both now tested: ranking on raw
-recurrence surfaced "potential" / "collaboration" / "opportunities" — strategy-log
-boilerplate, because the model repeats its own advice shape — so a theme must now
-be grounded in a **confirmed note**. With that, the top theme became "quantum",
-which is correct.
+- **The configured LLM model is still dead** (`meta/llama-3.1-70b-instruct`, EOL
+  2026-08-26, every `/analyze` returns 410). Nothing drafts until you pick a
+  current model in Settings. This blocks the live drafting checks for the
+  platform register and the corpus loop — everything else was verified live.
+- **39 of 41 contacts still have no enrichment.** The selector fix repairs this
+  going forward, but existing rows stay empty until those profiles are opened
+  again. The Overview card now says so.
+- **New: mojibake in some contact names** — `Sergio VÃ¡zquez` is "Vázquez" stored
+  as UTF-8 read as Latin-1. Not touched; it's a separate encoding bug at whatever
+  wrote the row, and guessing at a repair risks corrupting correct names.
+- Verify the four features live once the model is fixed: a Gmail draft reading as
+  email, the corpus round-trip showing up in `examples_used`, the badge count,
+  and the health card.
 
-### Two real problems found along the way (neither fixed here)
-
-1. **The configured LLM model is dead.** `.env` points at
-   `meta/llama-3.1-70b-instruct` on NVIDIA, which reached end-of-life
-   2026-08-26 — every `/analyze` returns `410 Gone`. Pick a current model in the
-   dashboard's Settings tab. This is why C2 was verified through a direct
-   prompt-assembly probe rather than a live draft.
-2. **A stored contact name contains scraped UI chrome** — `contacts.name` holds
-   `"Divyanshu Gupta Status is reachable Mobile • 10h"`; thread-title extraction
-   swallowed the presence indicator. `memoryPatterns` cleans names before they
-   enter a proposal, but that is damage control: the stored row is still wrong,
-   and whatever wrote it needs a look.
-
-Full suite green throughout: **188 backend + 33 extension tests**, both builds
-clean.
+Full suite green: **231 backend + 46 extension tests**, both builds clean.
 
 ---
-
-## Extraction render-race + snapshot triage (2026-06-30)
-
-**Branch:** `fix/extraction-render-race` (ahead of `master` by these commits:
-`4d16835` Gmail all-quoted recovery, `dcb3536` wait-for-render, `966ee22` per-tab
-isolation, `e316e37` explainability, `8ce1937` voice versioning, …).
-
-Triaged the saved debug snapshots in `backend/data/snapshots/`:
-- **Gmail Jun 23 (×2)** — `gmail-zero-messages` on an all-quoted thread. Replayed
-  the real captured DOM through current `extractGmailContext`: 1 message, no
-  anomaly, quoted chain retained. **Already fixed** by `4d16835`.
-- **LinkedIn Jun 29** — captured DOM was the **My Network feed**, not the thread;
-  extraction fired against the stale pre-navigation page (URL was a thread, but
-  the SPA hadn't swapped `main` yet). `backfillMs` 4077 = it hit the old 4s wait
-  ceiling and gave up. **Not a selector rename** — verified live in-browser that
-  every LinkedIn selector chain still matches on a rendered thread
-  (`.msg-s-message-list-container`, `…__event`, `…__body`, `…group__name`,
-  `.msg-form__contenteditable`, `.msg-entity-lockup__entity-title` all hit).
-
-**Fix (committed):**
-- `content/linkedin.ts` `waitForMessageList`: 4s → **10s** budget (cold messaging
-  bundle when arriving from another surface), and now waits for a message **event
-  to hydrate** (or a 1.5s content-settle for empty threads) — not just the
-  container shell.
-- `content/index.ts` `tryInstallObserver`: a thread that paints *after* the
-  observer installs fires no mutations, so it now **kicks one extraction on a late
-  install** so `lastContext`/prefetch reflect the rendered thread.
-- New regression test `content/linkedin.test.ts` reproduces "wrong page mounted →
-  thread paints 250ms later". `tsc` clean, 24/24 extension tests pass, build clean.
-
-**To verify live:** reload the extension card at `chrome://extensions` (dist was
-rebuilt), then open a thread via "Message" from My Network — the path that raced.
-
-### Follow-up: the latest snapshot (Jul 8) — wrong-surface, not slow-render
-
-The Jul 8 snapshot (`snapshot-2026-07-08T16-50-18-…`) came in AFTER the 10s fix
-(`backfillMs` was 10010 = it waited the full new budget) and STILL failed: 0
-messages, captured DOM was **My Network again** (`main#workspace`, thread URL
-present only as 10 message-preview hrefs). So it's not "thread paints slowly" —
-**the messaging app never mounted in that document at all**. Verified live:
-direct navigation to that exact thread URL renders fine (container/events/draft
-all present, `main#main`). Decisive discriminator, confirmed live on both
-surfaces: messaging carries **~395 `[class*='msg-']`** elements; feed / My
-Network carries **0**.
-
-**Fix (this branch):**
-- `linkedin.ts` `waitForMessageList`: **fast-bail** after a 3s grace when no
-  `msg-*` scaffold exists at all (wrong surface) — no more 10s hang on a page
-  that will never yield a thread. Genuine slow *messaging* loads still get the
-  full 10s (their scaffold shows within the grace).
-- `extractLinkedInContext`: when the messaging surface isn't mounted on a thread
-  route, **early-return one honest anomaly** `messaging-thread-not-mounted`
-  instead of parsing the foreign page + emitting misleading "layout changed"
-  anomalies (and the 120k My-Network debug dump).
-- `diagnostics.ts`: new `messaging-thread-not-mounted` anomaly, deliberately NOT
-  a layout anomaly → overlay shows "⚠ Heads up: this conversation isn't loaded in
-  this tab — reload / open it from Messaging", not "couldn't read this page".
-- Regression test drives the real wrong-surface DOM: fast-bail + honest anomaly +
-  `hasLayoutAnomaly === false`. 25/25 extension tests pass, build clean.
-
 ---
 
 ## What works end-to-end right now
@@ -193,18 +113,21 @@ Run tests: `npm test` (root) or `npx vitest run <file>` inside `backend/` or `ex
 
 ## Next-up / open threads
 
-- **Open the six PRs.** Everything below is pushed but unreviewed; `gh auth login`
-  first. Merge the four stacked branches in the order given above.
-- **Fix the dead LLM model** (Settings → provider) — nothing drafts until then.
-- **Roadmap** — Tracks A, B and D are done (hosting H1–H5 all landed, CI exists,
-  Vitest covers both workspaces). Track C is now complete too: C1 voice-eval,
-  C2 few-shot, C3 variations, C4 cross-conversation memory. What genuinely
-  remains: **A5 Chrome Web Store submission** (store copy, promo assets, the
-  manual billed submission) and **C5 opt-in Google Calendar connect** — which
+- **Fix the dead LLM model** (Settings → provider) — nothing drafts until then,
+  and it blocks the remaining live checks.
+- **Roadmap** — Tracks A, B, C and D are all done. What genuinely remains:
+  **A5 Chrome Web Store submission** (store copy, promo assets, the manual
+  billed submission) and **C5 opt-in Google Calendar connect** — which
   deliberately crosses "copy-never-send", so it must stay explicit and off by
-  default.
+  default. Everything else shipped here is off-roadmap work found by using the
+  code.
+- **Nothing measures any of it.** `npm run voice:eval` exists and none of the
+  recent quality work — few-shot grounding, the per-platform register, the
+  corpus loop — has been scored with it. Running it before and after would turn
+  "this should improve voice fidelity" into a number.
 - **Capture a filled-in LinkedIn profile** to finish the Experience/Education
-  entry selectors — see the caveat above.
+  entry selectors — the one part of the profile fix not verified against real
+  DOM.
 - **Selector currency** — when extraction returns 0 messages, use the overlay
   debug-pane snapshot button → `/snapshots` to capture real DOM and fix
   `extension/src/content/selectors.ts`.

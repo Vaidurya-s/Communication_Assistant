@@ -161,6 +161,16 @@ landed (see [ROADMAP-HOSTING.md](ROADMAP-HOSTING.md)).
 **Track C is complete too:** C1 (voice-eval harness), C2 (few-shot grounding for
 every provider), C3 (reply variations), C4 (cross-conversation memory).
 
+**Off-roadmap work (2026-08-30).** Four gaps that no track covered, found by
+using the code rather than by planning: a per-platform register (Gmail was being
+drafted with LinkedIn DM rules, and its extracted subject line was being
+discarded); the corpus write loop (the successful-messages file was read by four
+subsystems and written by none, with hand-tallied reply rates now computed); the
+follow-up alarm and badge (dates were stored and surfaced but nothing ever
+noticed when one arrived — 11 were due, the oldest by 107 days); and contact
+data health (nothing validated a scraped name on the way in, and nothing ever
+looked at the data as a whole — 39 of 41 contacts had no enrichment).
+
 What actually remains:
 
 - **A5 — Chrome Web Store submission.** Store-listing copy, promo assets, and
