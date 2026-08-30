@@ -17,10 +17,12 @@ interface ResolvedSelf {
   path: SelfDetectionPath;
 }
 
-async function resolveSelfName(): Promise<ResolvedSelf> {
-  const configured = (await getSelfNameSetting()).trim();
-  if (configured) return { name: configured, path: "configured-name" };
-
+/**
+ * The signed-in account's name, read from the top-nav "Me" menu. Separated from
+ * `resolveSelfName` so it can also serve as a FALLBACK when a configured name
+ * turns out to be stale — see the recovery in extractLinkedInContext.
+ */
+function selfNameFromMeMenu(): ResolvedSelf {
   const meChain = queryFirstChain(document, S.selfNameMeMenu);
   const meEl = meChain.elements[0];
   if (!meEl) return { name: "", path: "none" };
@@ -35,6 +37,12 @@ async function resolveSelfName(): Promise<ResolvedSelf> {
     if (cleaned) return { name: cleaned, path: "me-menu-aria" };
   }
   return { name: "", path: "none" };
+}
+
+async function resolveSelfName(): Promise<ResolvedSelf> {
+  const configured = (await getSelfNameSetting()).trim();
+  if (configured) return { name: configured, path: "configured-name" };
+  return selfNameFromMeMenu();
 }
 
 interface FirstMatchResult {
@@ -207,7 +215,7 @@ export async function extractLinkedInContext(): Promise<ExtractionResult> {
   const startedAt = performance.now();
   const diag = createEmptyDiagnostics();
 
-  const self = await resolveSelfName();
+  let self = await resolveSelfName();
   diag.selfDetectionPath = self.path;
 
   // On a thread route, give the SPA a moment to render the message list before
@@ -251,14 +259,57 @@ export async function extractLinkedInContext(): Promise<ExtractionResult> {
   diag.selectorHits.messageListContainer = containerMatch.selector;
   if (!containerMatch.selector) diag.anomalies.push("message-list-container-missing");
 
-  const messages = extractMessages(self.name, diag);
+  let messages = extractMessages(self.name, diag);
+
+  // RECOVERY: a configured self-name that matches nothing is worse than none.
+  //
+  // A name saved in the popup short-circuits detection permanently, so if the
+  // user later signs into a different LinkedIn account — or simply typed the
+  // name differently from how LinkedIn renders it — every message they ever
+  // sent is attributed to the other party, forever, while a perfectly good name
+  // sits in the top-nav "Me" menu unused. Seen live: the configured name was
+  // one account's while messaging attributed the user's own messages to
+  // another's.
+  //
+  // So when the configured name matched no sender but the signed-in account's
+  // name DOES match one, trust the page over the setting. Only ever applied
+  // when it actually resolves the ambiguity, never as a blanket override.
+  if (self.path === "configured-name" && messages.length > 0 && !messages.some((m) => m.isSelf)) {
+    const menu = selfNameFromMeMenu();
+    const menuMatches =
+      !!menu.name &&
+      menu.name.toLowerCase() !== self.name.toLowerCase() &&
+      messages.some((m) => m.sender.toLowerCase() === menu.name.toLowerCase());
+    if (menuMatches) {
+      // Re-extract so senders are re-attributed; reset the per-run selector
+      // hits the second pass will re-record.
+      messages = extractMessages(menu.name, diag);
+      self = menu;
+      diag.selfDetectionPath = menu.path;
+    }
+  }
+
   diag.messagesFound = messages.length;
 
   const draft = getDraft(diag);
   diag.draftLen = draft.length;
 
   // Did self-detection have an actual match against any message sender?
-  if (self.name && messages.length > 0 && !messages.some((m) => m.isSelf)) {
+  //
+  // "No message matched me" is only evidence of a FAILURE when one of my
+  // messages was there to match. In a thread nobody has replied to yet, every
+  // message is legitimately the contact's — and that is precisely the thread
+  // you most want to draft in, so warning there trained the user to ignore the
+  // banner. Reported as "couldn't match your name to a sender" on a thread with
+  // a single inbound message and no reply.
+  //
+  // The discriminator is the thread title: it is the contact's display name, so
+  // a message from anyone else is one that could have been mine and wasn't
+  // recognised.
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const contact = norm(titleMatch.text);
+  const couldHaveBeenMine = messages.some((m) => !m.isSelf && norm(m.sender) !== contact);
+  if (self.name && messages.length > 0 && !messages.some((m) => m.isSelf) && couldHaveBeenMine) {
     diag.anomalies.push("self-name-configured-but-unmatched");
   }
 
