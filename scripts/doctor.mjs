@@ -61,6 +61,56 @@ async function getHealth() {
   }
 }
 
+
+/**
+ * Is the configured model still served?
+ *
+ * Hosted endpoints retire models on their own schedule, and the first sign is a
+ * failed draft: this install lost `meta/llama-3.1-70b-instruct` to an EOL in
+ * August and `deepseek-ai/deepseek-v4-pro-0813` to another in September, each
+ * surfacing as a 410 in the middle of writing a reply. The model list is public
+ * and one request answers it, so the check belongs here rather than in the
+ * user's next conversation.
+ *
+ * Returns null when it can't tell (no key, no network, a provider that doesn't
+ * serve /models) — "couldn't check" must never read as "broken".
+ */
+async function checkModelAlive(baseUrl, apiKey, model) {
+  if (!apiKey || !model) return null;
+  const url = `${baseUrl.replace(/\/+$/, "")}/models`;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const ids = (body?.data ?? []).map((m) => m?.id).filter(Boolean);
+    if (ids.length === 0) return null;
+    return { alive: ids.includes(model), ids };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A few plausible replacements, so the fix isn't "go read a model list".
+ *
+ * Anything that cannot write a message is excluded outright — embedding,
+ * reranking, safety-guard, parsing, vision and CODE models all appear in these
+ * catalogues and none of them can draft a reply. That exclusion applies to the
+ * same-family matches too: the nearest name to a dead `deepseek-v4-pro` is
+ * `deepseek-coder`, which would be a actively misleading first suggestion.
+ */
+function suggestModels(ids, current) {
+  const unusable = /embed|rerank|guard|safety|parse|vision|code|whisper|tts|ocr|reward/i;
+  const usable = ids.filter((i) => i !== current && !unusable.test(i));
+  const family = (current.split("/")[1] || current).split("-")[0];
+  const sameFamily = usable.filter((i) => i.includes(family));
+  const chatty = usable.filter((i) => /instruct|chat|nemotron|gpt-oss|-it$/i.test(i));
+  return [...new Set([...sameFamily, ...chatty])].slice(0, 6);
+}
+
 async function main() {
   console.log(`${C.bold}Comms Assistant — doctor${C.reset}\n`);
 
@@ -79,6 +129,24 @@ async function main() {
     if (env.OPENAI_API_KEY) pass("OPENAI_API_KEY set");
     else fail("OPENAI_API_KEY is empty", "add your key to backend/.env");
     pass(`OPENAI_BASE_URL: ${env.OPENAI_BASE_URL || "(OpenAI default)"}`);
+
+    const model = env.OPENAI_MODEL || "";
+    const base = env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    const check = await checkModelAlive(base, env.OPENAI_API_KEY, model);
+    if (!check) {
+      warn(`Model: ${model || "(unset)"}`, "couldn't verify against the endpoint — offline, or it serves no /models");
+    } else if (check.alive) {
+      pass(`Model is still served: ${model}`);
+    } else {
+      const alt = suggestModels(check.ids, model);
+      fail(
+        `Model no longer served: ${model}`,
+        `pick another in the dashboard Settings tab${alt.length ? ` — e.g. ${alt.slice(0, 3).join(", ")}` : ""}`,
+      );
+      if (alt.length > 3) {
+        console.log(`    ${C.dim}also available: ${alt.slice(3).join(", ")}${C.reset}`);
+      }
+    }
   } else {
     if (onPath("gemini")) pass("gemini CLI found on PATH");
     else fail("gemini CLI not found", "install & sign in, or set LLM_PROVIDER=openai-compat in backend/.env");
