@@ -5,7 +5,27 @@ A running handoff doc. Read this first when you come back; it tells you where th
 ---
 ## The three open items (2026-08-30, later)
 
-**1. The dead model — fixed, but the replacement is slow.** Every 70B Llama is
+**UPDATE 2026-09-18 — the replacement died too, and the one after it is fast.**
+`deepseek-ai/deepseek-v4-pro-0813` reached EOL on 2026-09-14, three weeks after
+the model it replaced. Now on **`nvidia/nemotron-3-super-120b-a12b`**, which is
+the first genuinely usable option this endpoint has offered:
+
+| | first token | total |
+|---|---|---|
+| deepseek-v4-pro | 119s | 123s |
+| nemotron-3-super | **10.1s** | **11.0s** |
+
+Avoid the other fast ones: `nemotron-3.5-lightning-30b-a3b` dumps its chain of
+thought into `content` (unusable as a draft), and `deepseek-v4-flash` returns
+`content: null` with everything in `reasoning_content`, which the
+`openai-compat` provider cannot read. Both look fine on a latency benchmark and
+produce garbage as drafts — check the actual text, not just the timing.
+
+`npm run doctor` now verifies the configured model is still served and names
+replacements, so the next retirement shows up as a failed check rather than a
+failed draft.
+
+**1. The dead model — fixed at the time, but that replacement was slow.** Every 70B Llama is
 gone from `integrate.api.nvidia.com`; of 83 listed models most 404 or 410 when
 actually called (listed ≠ deployed), and `openai/gpt-oss-120b` is a reasoning
 model that returns `content: null` with everything in `reasoning_content`, which
@@ -158,20 +178,19 @@ Run tests: `npm test` (root) or `npx vitest run <file>` inside `backend/` or `ex
 
 ## Next-up / open threads
 
-- **The provider is the weak link now.** deepseek-v4-pro works but takes 49–146s
-  per draft depending on prompt size. Moving to the native `anthropic` provider
-  (built, with prompt caching) or a local Ollama would make the streaming and
-  prefetch work actually pay off, and would unblock the voice:eval comparison.
+- **Provider latency is resolved for now** (nemotron-3-super, ~11s end to end),
+  but this endpoint has retired two models in three weeks. `npm run doctor`
+  catches the next one. The native `anthropic` provider with prompt caching
+  remains the sturdier option if a key is available.
+- **The voice:eval comparison is now runnable** — the harness measures the real
+  pipeline and the baseline is 72/100 with inputs off. `npm run voice:eval` vs
+  `npm run voice:eval -- --no-examples` should complete on this model.
 - **Roadmap** — Tracks A, B, C and D are all done. What genuinely remains:
   **A5 Chrome Web Store submission** (store copy, promo assets, the manual
   billed submission) and **C5 opt-in Google Calendar connect** — which
   deliberately crosses "copy-never-send", so it must stay explicit and off by
   default. Everything else shipped here is off-roadmap work found by using the
   code.
-- **Finish the voice:eval comparison.** The harness now measures the real
-  pipeline and the baseline is 72/100 (inputs off); the few-shot-ON run needs a
-  provider that can complete it. `npm run voice:eval` vs
-  `npm run voice:eval -- --no-examples`.
 - **Capture a filled-in LinkedIn profile** to finish the Experience/Education
   entry selectors — the one part of the profile fix not verified against real
   DOM.
